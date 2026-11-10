@@ -10,6 +10,7 @@ export type SettingsTabValue =
   | 'placeholders'
   | 'hookPrompts'
   | 'promptLibrary'
+  | 'tasks'
   | 'session'
   | 'workspaces'
   | 'groups'
@@ -31,6 +32,7 @@ export const SETTINGS_NAVIGATION_VALUES: readonly SettingsTabValue[] = [
   'placeholders',
   'hookPrompts',
   'promptLibrary',
+  'tasks',
   'session',
   'workspaces',
   'groups',

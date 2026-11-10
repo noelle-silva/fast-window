@@ -6,12 +6,14 @@ import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import CleaningServicesIcon from '@mui/icons-material/CleaningServices'
 import LibraryBooksOutlinedIcon from '@mui/icons-material/LibraryBooksOutlined'
+import TaskAltOutlinedIcon from '@mui/icons-material/TaskAltOutlined'
 import { HookPromptSelector } from '../components/HookPromptSelector'
 import { FitTextLabel } from '../components/FitTextLabel'
 import type { MoreActionsMenuItem } from '../components/MoreActionsMenu'
 import { hookPromptSelectionLabel, type HookPromptLibrary, type HookPromptSelectionMode } from '../../domain/hookPrompt'
 import { PROMPT_SCOPE_LABELS, promptScopeLibraryTitle, type PromptScope } from '../../domain/promptLibrary'
 import type { ComposerToolId, ComposerToolsLayout } from '../../domain/composerToolsLayout'
+import type { TaskScope } from '../../domain/taskTree'
 
 // 输入区工具条按钮的两种形态：直显（inline）与更多菜单里的一行（menuItem）。
 // 布局只决定顺序与位置；每种形态与它的可用性判断都归条目自己，
@@ -73,6 +75,8 @@ export type ComposerToolEntriesContext = {
   onCleanReasoning: () => void
   /** 打开对应作用域的提示词库模态窗。 */
   onOpenPromptLibrary: (scope: PromptScope) => void
+  /** 任务清单入口：按当前上下文预置作用域（工作区会话直接开工作区任务）。 */
+  onOpenTaskTree: (scope: TaskScope) => void
 }
 
 const composerToolIconButtonSx = {
@@ -184,6 +188,7 @@ export function buildComposerToolEntries(ctx: ComposerToolEntriesContext): Recor
     onToggleStream,
     onCleanReasoning,
     onOpenPromptLibrary,
+    onOpenTaskTree,
   } = ctx
 
   const hookLibrary: HookPromptLibrary = hookPrompts.library || { presets: [] }
@@ -465,6 +470,27 @@ export function buildComposerToolEntries(ctx: ComposerToolEntriesContext): Recor
     'role-prompts': promptLibraryEntry('role-prompts', 'role', '角色'),
     // 工作区库只在工作区上下文里有意义；不在工作区时连入口一起收掉。
     'workspace-prompts': promptLibraryEntry('workspace-prompts', 'workspace', '工作区', activeTargetKind !== 'workspace'),
+
+    // 任务清单：一个入口按当前上下文定作用域；面板里还能再切。
+    'task-tree': {
+      inline: (
+        <Button
+          aria-label="任务"
+          onClick={() => onOpenTaskTree(activeTargetKind === 'workspace' ? 'workspace' : 'role')}
+          size="small"
+          variant="text"
+          sx={{ ...composerToolTextButtonSx, px: 1 }}
+        >
+          任务
+        </Button>
+      ),
+      menuItem: {
+        key: 'task-tree',
+        label: '任务',
+        icon: <TaskAltOutlinedIcon fontSize="small" />,
+        onSelect: () => onOpenTaskTree(activeTargetKind === 'workspace' ? 'workspace' : 'role'),
+      },
+    },
   }
 }
 

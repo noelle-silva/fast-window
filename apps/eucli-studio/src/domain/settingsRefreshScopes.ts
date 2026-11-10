@@ -44,6 +44,7 @@ export const SETTINGS_PANEL_REFRESH_SCOPES: Record<SettingsTabValue, readonly st
   placeholders: [APP_DATA, entity('placeholders'), entity('plugins')],
   hookPrompts: [APP_DATA, entity('hookPrompts')],
   promptLibrary: [APP_DATA],
+  tasks: [APP_DATA],
   session: [APP_DATA, entity('modelRequestConfig'), entity('conversationImageConfig')],
   workspaces: [APP_DATA, entity('workspaces'), entity('roles'), NAVIGATION, UI_SHELL],
   groups: [APP_DATA, entity('groups'), entity('roles'), NAVIGATION, UI_SHELL],

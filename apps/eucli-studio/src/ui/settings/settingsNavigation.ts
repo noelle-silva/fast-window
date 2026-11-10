@@ -22,6 +22,7 @@ const SETTINGS_NAVIGATION_LABELS: Record<SettingsTabValue, string> = {
   placeholders: '占位符管理',
   hookPrompts: 'hook 提示词',
   promptLibrary: '提示词仓库管理',
+  tasks: '任务管理',
   session: '会话设置',
   workspaces: '工作区管理',
   groups: '群组管理',

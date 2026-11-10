@@ -51,22 +51,23 @@ describe('normalizeComposerToolsLayout', () => {
     expect(layout.inline).toContain('stream-toggle')
   })
 
-  it('ships the prompt library entries inside the menu by default', () => {
+  it('ships the prompt library and task entries inside the menu by default', () => {
     expect(COMPOSER_TOOLS_DEFAULT_LAYOUT.menu).toEqual([
       'clean-reasoning',
       'global-prompts',
       'role-prompts',
       'workspace-prompts',
+      'task-tree',
     ])
   })
 
-  it('restores the prompt library entries into the menu for older layouts', () => {
+  it('restores the prompt library and task entries into the menu for older layouts', () => {
     const layout = normalizeComposerToolsLayout({
       inline: COMPOSER_TOOLS_DEFAULT_LAYOUT.inline,
       menu: ['clean-reasoning'],
     })
 
-    expect(layout.menu).toEqual(['clean-reasoning', 'global-prompts', 'role-prompts', 'workspace-prompts'])
+    expect(layout.menu).toEqual(['clean-reasoning', 'global-prompts', 'role-prompts', 'workspace-prompts', 'task-tree'])
     expect(layout.inline).not.toContain('global-prompts')
   })
 })

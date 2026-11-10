@@ -12,6 +12,9 @@ import { COMPOSER_REFRESH_SCOPE } from '../../domain/uiRefreshScope'
 import { useScopedUiVersion } from '../hooks/useScopedUiVersion'
 import { ComposerInputControls } from './ComposerInputControls'
 import { ComposerPromptLibraryDialog } from './ComposerPromptLibraryDialog'
+import { ComposerTaskTreeDialog } from './ComposerTaskTreeDialog'
+import type { TaskTreeBrowseState } from '../settings/TaskTreePanel'
+import type { TaskScope } from '../../domain/taskTree'
 import { useEvent } from '../hooks/useEvent'
 import type { PromptLibraryBrowseState } from '../settings/PromptLibrarySettingsPanel'
 import {
@@ -181,6 +184,16 @@ export function ChatComposer(props: {
     promptLibraryBrowseRef.current.set(promptLibraryBrowseKey, { ...current, [scope]: state })
   })
 
+  // 任务清单模态窗：null 表示关闭；否则是当前作用域（role / workspace）。
+  const [taskTreeScope, setTaskTreeScope] = React.useState<TaskScope | null>(null)
+  // 每个会话一份任务浏览位置：作用域 → 归属 + 层级路径。
+  const taskTreeBrowseRef = React.useRef<Map<string, Partial<Record<TaskScope, TaskTreeBrowseState>>>>(new Map())
+  const taskTreeBrowse = taskTreeBrowseRef.current.get(promptLibraryBrowseKey) || {}
+  const rememberTaskTreeBrowse = useEvent((scope: TaskScope, state: Required<TaskTreeBrowseState>) => {
+    const current = taskTreeBrowseRef.current.get(promptLibraryBrowseKey) || {}
+    taskTreeBrowseRef.current.set(promptLibraryBrowseKey, { ...current, [scope]: state })
+  })
+
   const toolLayout = React.useMemo(() => normalizeComposerToolsLayout(composerToolsLayout), [composerToolsLayout])
 
   const toolEntries = React.useMemo(
@@ -223,6 +236,7 @@ export function ChatComposer(props: {
         onToggleStream: () => controller.actions.toggleChatStreamEnabled?.(),
         onCleanReasoning: () => setCleanOpen(true),
         onOpenPromptLibrary: (scope) => setPromptLibraryScope(scope),
+        onOpenTaskTree: (scope) => setTaskTreeScope(scope),
       }),
     [
       controller,
@@ -377,6 +391,18 @@ export function ChatComposer(props: {
         activeWorkspaceId={String(activeWorkspaceId || '')}
         browseState={promptLibraryBrowse}
         onBrowseStateChange={rememberPromptLibraryBrowse}
+      />
+
+      <ComposerTaskTreeDialog
+        controller={controller}
+        scope={taskTreeScope}
+        onClose={() => setTaskTreeScope(null)}
+        roles={roles}
+        workspaces={workspaces}
+        activeRoleId={String(activeRole?.id || '')}
+        activeWorkspaceId={String(activeWorkspaceId || '')}
+        browseState={taskTreeBrowse}
+        onBrowseStateChange={rememberTaskTreeBrowse}
       />
     </Box>
   )
