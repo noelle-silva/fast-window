@@ -8,7 +8,6 @@ import {
   MenuItem,
   Select,
   Stack,
-  Tooltip,
   Typography,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
@@ -390,19 +389,15 @@ export function TaskTreePanel(props: TaskTreePanelProps) {
       {/* 顶部行：面包屑在左，归属下拉固定在右；设置页多出来的作用域切换夹在两者之间。 */}
       <Stack direction="row" spacing={1.25} alignItems="center">
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, flex: 1 }}>
-          <Tooltip title="返回上一级">
-            <span>
-              <IconButton
-                size="small"
-                aria-label="返回上一级"
-                disabled={!path.length || loading}
-                onClick={() => setPathIds(pathIds.slice(0, -1))}
-                sx={{ ...FILLED_SECONDARY_SX, borderRadius: 1.5 }}
-              >
-                <ArrowBackIcon fontSize="small" />
-              </IconButton>
-            </span>
-          </Tooltip>
+          <IconButton
+            size="small"
+            aria-label="返回上一级"
+            disabled={!path.length || loading}
+            onClick={() => setPathIds(pathIds.slice(0, -1))}
+            sx={{ ...FILLED_SECONDARY_SX, borderRadius: 1.5 }}
+          >
+            <ArrowBackIcon fontSize="small" />
+          </IconButton>
           <Box
             sx={{
               display: 'flex',
@@ -494,24 +489,20 @@ export function TaskTreePanel(props: TaskTreePanelProps) {
           </FormControl>
         </Box>
 
-        <Tooltip title="新建任务">
-          <span>
-            <IconButton
-              size="small"
-              aria-label="新建任务"
-              onClick={createInCurrentLayer}
-              disabled={loading || !activeOwnerId}
-              sx={{
-                borderRadius: 1.5,
-                bgcolor: 'primary.main',
-                color: '#fff',
-                '&:hover': { bgcolor: 'primary.dark' },
-              }}
-            >
-              <AddIcon fontSize="small" />
-            </IconButton>
-          </span>
-        </Tooltip>
+        <IconButton
+          size="small"
+          aria-label="新建任务"
+          onClick={createInCurrentLayer}
+          disabled={loading || !activeOwnerId}
+          sx={{
+            borderRadius: 1.5,
+            bgcolor: 'primary.main',
+            color: '#fff',
+            '&:hover': { bgcolor: 'primary.dark' },
+          }}
+        >
+          <AddIcon fontSize="small" />
+        </IconButton>
       </Stack>
 
       <Box

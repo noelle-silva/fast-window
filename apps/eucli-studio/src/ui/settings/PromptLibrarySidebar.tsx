@@ -8,7 +8,6 @@ import {
   MenuItem,
   Stack,
   TextField,
-  Tooltip,
   Typography,
   type SxProps,
   type Theme,
@@ -186,13 +185,9 @@ export function PromptLibrarySidebar(props: PromptLibrarySidebarProps) {
         }}
       >
         <Stack direction="row" spacing={0.5} alignItems="center" sx={{ px: 0.25, pb: 0.5 }}>
-          <Tooltip title="返回上一级">
-            <span>
-              <IconButton size="small" onClick={onBack} disabled={layer.crumbs.length <= 1}>
-                <ArrowBackIcon fontSize="small" />
-              </IconButton>
-            </span>
-          </Tooltip>
+          <IconButton size="small" aria-label="返回上一级" onClick={onBack} disabled={layer.crumbs.length <= 1}>
+            <ArrowBackIcon fontSize="small" />
+          </IconButton>
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <PromptFolderCrumbsMenu
               currentFolderId={layer.folderId}
@@ -201,20 +196,12 @@ export function PromptLibrarySidebar(props: PromptLibrarySidebarProps) {
               drop={dropConfig}
             />
           </Box>
-          <Tooltip title="新建提示词">
-            <span>
-              <IconButton size="small" aria-label="新建提示词" onClick={onCreatePrompt} disabled={loading}>
-                <AddIcon fontSize="small" />
-              </IconButton>
-            </span>
-          </Tooltip>
-          <Tooltip title="新建收藏夹">
-            <span>
-              <IconButton size="small" aria-label="新建收藏夹" onClick={onCreateFolder} disabled={loading}>
-                <CreateNewFolderRoundedIcon fontSize="small" />
-              </IconButton>
-            </span>
-          </Tooltip>
+          <IconButton size="small" aria-label="新建提示词" onClick={onCreatePrompt} disabled={loading}>
+            <AddIcon fontSize="small" />
+          </IconButton>
+          <IconButton size="small" aria-label="新建收藏夹" onClick={onCreateFolder} disabled={loading}>
+            <CreateNewFolderRoundedIcon fontSize="small" />
+          </IconButton>
         </Stack>
 
         {/* 搜索常驻在顶部栏下面，列表自己滚，它不跟着走。 */}
@@ -284,39 +271,35 @@ export function PromptLibrarySidebar(props: PromptLibrarySidebarProps) {
                                   />
                                 ) : null}
                                 {/* 复制按钮放在条目容器内部最右侧：不选中条目、不触发整行拖拽。 */}
-                                <Tooltip title="复制内容">
+                                <IconButton
+                                  size="small"
+                                  aria-label="复制提示词内容"
+                                  onPointerDown={stopPointerPropagation}
+                                  onClick={(event) => {
+                                    event.preventDefault()
+                                    event.stopPropagation()
+                                    onCopyPrompt(entry.prompt.id)
+                                  }}
+                                  sx={{ ml: 0.5, flexShrink: 0, color: 'var(--studio-text-secondary)' }}
+                                >
+                                  <ContentCopyIcon sx={{ fontSize: 15 }} />
+                                </IconButton>
+                                {/* 填入：不动剪贴板，直接写进输入框的光标处。没有输入框的地方不出现。 */}
+                                {onInsertPrompt ? (
                                   <IconButton
                                     size="small"
-                                    aria-label="复制提示词内容"
-                                    onPointerDown={stopPointerPropagation}
+                                    aria-label="填入提示词内容"
+                                    onPointerDown={holdInputFocusPointer}
+                                    onMouseDown={(event) => event.preventDefault()}
                                     onClick={(event) => {
                                       event.preventDefault()
                                       event.stopPropagation()
-                                      onCopyPrompt(entry.prompt.id)
+                                      onInsertPrompt(entry.prompt.id)
                                     }}
                                     sx={{ ml: 0.5, flexShrink: 0, color: 'var(--studio-text-secondary)' }}
                                   >
-                                    <ContentCopyIcon sx={{ fontSize: 15 }} />
+                                    <InputIcon sx={{ fontSize: 15 }} />
                                   </IconButton>
-                                </Tooltip>
-                                {/* 填入：不动剪贴板，直接写进输入框的光标处。没有输入框的地方不出现。 */}
-                                {onInsertPrompt ? (
-                                  <Tooltip title="填入输入框">
-                                    <IconButton
-                                      size="small"
-                                      aria-label="填入提示词内容"
-                                      onPointerDown={holdInputFocusPointer}
-                                      onMouseDown={(event) => event.preventDefault()}
-                                      onClick={(event) => {
-                                        event.preventDefault()
-                                        event.stopPropagation()
-                                        onInsertPrompt(entry.prompt.id)
-                                      }}
-                                      sx={{ ml: 0.5, flexShrink: 0, color: 'var(--studio-text-secondary)' }}
-                                    >
-                                      <InputIcon sx={{ fontSize: 15 }} />
-                                    </IconButton>
-                                  </Tooltip>
                                 ) : null}
                               </>
                             )}

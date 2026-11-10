@@ -13,7 +13,6 @@ import {
   Select,
   Stack,
   TextField,
-  Tooltip,
   Typography,
 } from '@mui/material'
 import BookmarkAddOutlinedIcon from '@mui/icons-material/BookmarkAddOutlined'
@@ -763,19 +762,15 @@ export function PromptLibrarySettingsPanel(props: PromptLibrarySettingsPanelProp
                       ) : null}
                     </Button>
                     {/* 收藏只留图标：省下的横向空间归名称输入框。 */}
-                    <Tooltip title="收藏到收藏夹">
-                      <span>
-                        <IconButton
-                          size="small"
-                          aria-label="收藏到收藏夹"
-                          onClick={() => openPicker({ mode: 'collect', id: draft.id })}
-                          disabled={loading || !isSaved}
-                          sx={{ ...FILLED_SECONDARY_SX, borderRadius: 1.5 }}
-                        >
-                          <BookmarkAddOutlinedIcon fontSize="small" />
-                        </IconButton>
-                      </span>
-                    </Tooltip>
+                    <IconButton
+                      size="small"
+                      aria-label="收藏到收藏夹"
+                      onClick={() => openPicker({ mode: 'collect', id: draft.id })}
+                      disabled={loading || !isSaved}
+                      sx={{ ...FILLED_SECONDARY_SX, borderRadius: 1.5 }}
+                    >
+                      <BookmarkAddOutlinedIcon fontSize="small" />
+                    </IconButton>
                     <MoreActionsMenu
                       ariaLabel="提示词操作"
                       items={[

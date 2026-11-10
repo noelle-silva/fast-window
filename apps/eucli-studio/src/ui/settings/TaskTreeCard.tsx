@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Box, IconButton, Tooltip, Typography } from '@mui/material'
+import { Box, IconButton, Typography } from '@mui/material'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import { MoreActionsMenu, type MoreActionsMenuItem } from '../components/MoreActionsMenu'
 
@@ -73,23 +73,21 @@ export function TaskTreeCard(props: {
         </Typography>
       ) : null}
 
-      <Tooltip title={canCopy ? '复制文本' : '这段文本是空的'}>
-        <span style={{ position: 'absolute', top: 10, right: 44, zIndex: 1 }}>
-          <IconButton
-            aria-label="复制文本"
-            size="small"
-            disabled={!canCopy}
-            onClick={onCopy}
-            sx={{
-              color: copied ? '#fff' : 'var(--studio-text-tertiary)',
-              bgcolor: copied ? 'var(--studio-primary)' : 'transparent',
-              '&:hover': { bgcolor: copied ? 'var(--studio-primary)' : 'var(--studio-field-hover)' },
-            }}
-          >
-            <ContentCopyIcon fontSize="small" />
-          </IconButton>
-        </span>
-      </Tooltip>
+      <span style={{ position: 'absolute', top: 10, right: 44, zIndex: 1 }}>
+        <IconButton
+          aria-label="复制文本"
+          size="small"
+          disabled={!canCopy}
+          onClick={onCopy}
+          sx={{
+            color: copied ? '#fff' : 'var(--studio-text-tertiary)',
+            bgcolor: copied ? 'var(--studio-primary)' : 'transparent',
+            '&:hover': { bgcolor: copied ? 'var(--studio-primary)' : 'var(--studio-field-hover)' },
+          }}
+        >
+          <ContentCopyIcon fontSize="small" />
+        </IconButton>
+      </span>
 
       <Box sx={{ position: 'absolute', top: 10, right: 10, zIndex: 1 }}>
         <MoreActionsMenu items={menuItems} ariaLabel="任务操作" />

@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Box, IconButton, Stack, TextField, Tooltip } from '@mui/material'
+import { Box, IconButton, Stack, TextField } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
@@ -68,44 +68,32 @@ export function TaskTreeEditor(props: {
           onChange={(event) => onDraftChange({ name: event.target.value })}
           sx={{ flex: 1, minWidth: 0 }}
         />
-        <Tooltip title="保存">
-          <span>
-            <IconButton
-              size="small"
-              aria-label="保存任务"
-              disabled={!dirty || saving}
-              onClick={onSave}
-              sx={{ ...PRIMARY_ICON_SX, borderRadius: 1.5 }}
-            >
-              <SaveIcon fontSize="small" />
-            </IconButton>
-          </span>
-        </Tooltip>
-        <Tooltip title="复制文本">
-          <span>
-            <IconButton
-              size="small"
-              aria-label="复制任务文本"
-              disabled={!canCopy}
-              onClick={onCopy}
-              sx={{ ...FILLED_SECONDARY_SX, borderRadius: 1.5 }}
-            >
-              <ContentCopyIcon fontSize="small" />
-            </IconButton>
-          </span>
-        </Tooltip>
-        <Tooltip title="移动到…">
-          <span>
-            <IconButton
-              size="small"
-              aria-label="移动任务"
-              onClick={onMove}
-              sx={{ ...FILLED_SECONDARY_SX, borderRadius: 1.5 }}
-            >
-              <DriveFileMoveOutlinedIcon fontSize="small" />
-            </IconButton>
-          </span>
-        </Tooltip>
+        <IconButton
+          size="small"
+          aria-label="保存任务"
+          disabled={!dirty || saving}
+          onClick={onSave}
+          sx={{ ...PRIMARY_ICON_SX, borderRadius: 1.5 }}
+        >
+          <SaveIcon fontSize="small" />
+        </IconButton>
+        <IconButton
+          size="small"
+          aria-label="复制任务文本"
+          disabled={!canCopy}
+          onClick={onCopy}
+          sx={{ ...FILLED_SECONDARY_SX, borderRadius: 1.5 }}
+        >
+          <ContentCopyIcon fontSize="small" />
+        </IconButton>
+        <IconButton
+          size="small"
+          aria-label="移动任务"
+          onClick={onMove}
+          sx={{ ...FILLED_SECONDARY_SX, borderRadius: 1.5 }}
+        >
+          <DriveFileMoveOutlinedIcon fontSize="small" />
+        </IconButton>
         <MoreActionsMenu
           ariaLabel="任务操作"
           items={[
