@@ -41,13 +41,13 @@ function createRuntimeBridge(getRuntime: () => AiChatAppRuntime | null): () => R
         const source = typeof status?.source === 'string' ? status.source.trim() : ''
         // 来源配置不可用时不解析来源：商店读取会从业务端拿到失败事实。
         if (!source) return null
-        const shelfView = await Promise.resolve()
-          .then(() => runtime.controller?.actions?.getShelves?.(kind))
+        const sourceView = await Promise.resolve()
+          .then(() => runtime.controller?.actions?.getSources?.(kind))
           .catch(() => null)
-        const shelfList = shelfView && Array.isArray(shelfView.shelves) ? shelfView.shelves : null
+        const sourceList = sourceView && Array.isArray(sourceView.sources) ? sourceView.sources : null
         return {
           source,
-          shelves: shelfList ? shelfList.map((item: any) => String(item?.name || '')).filter(Boolean) : null,
+          sources: sourceList ? sourceList.map((item: any) => String(item?.name || '')).filter(Boolean) : null,
         }
       },
       listInstallations: async () => (await runtime.listArtifactInstallations()).artifacts,

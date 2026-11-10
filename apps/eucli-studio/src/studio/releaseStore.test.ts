@@ -26,7 +26,7 @@ function createFakeRuntime(overrides: Partial<ReleaseStoreRuntime> = {}) {
   const runtime: ReleaseStoreRuntime = {
     resolveSource: async (kind) => {
       calls.resolveSource.push(kind)
-      return { source: 'official', shelves: [] as string[] }
+      return { source: 'official', sources: [] as string[] }
     },
     listInstallations: async () => {
       calls.listInstallations += 1
@@ -89,7 +89,7 @@ describe('release store core', () => {
   it('resolves and reads each kind against its own source', async () => {
     const sources: Record<string, string> = { tool: '工具架', plugin: '插件架' }
     const { runtime } = createFakeRuntime({
-      resolveSource: async (kind) => ({ source: sources[kind], shelves: [sources[kind]] }),
+      resolveSource: async (kind) => ({ source: sources[kind], sources: [sources[kind]] }),
       listCandidates: async (kind) => ({ source: sources[kind], candidates: [candidate(kind, `${kind}-demo`, '0.1.0')] }),
     })
     const store = createReleaseStore(() => runtime, () => {})
@@ -107,16 +107,16 @@ describe('release store core', () => {
 
   it('keeps caches for different sources isolated when the source changes', async () => {
     let source = 'official'
-    let shelves: string[] | null = []
+    let sources: string[] | null = []
     const { runtime } = createFakeRuntime({
-      resolveSource: async () => ({ source, shelves }),
+      resolveSource: async () => ({ source, sources }),
       listCandidates: async (kind) => ({ source, candidates: [candidate(kind, `${source}-${kind}`, '0.1.0')] }),
     })
     const store = createReleaseStore(() => runtime, () => {})
 
     await store.read('tool')
     source = '甲'
-    shelves = ['甲']
+    sources = ['甲']
     await store.read('tool')
 
     expect(releaseCacheCell(store.getSnapshot().cache, 'tool', 'official').candidates[0].artifact.id).toBe('official-tool')
@@ -124,8 +124,8 @@ describe('release store core', () => {
     expect(store.getSnapshot().sources.tool).toBe('甲')
   })
 
-  it('prunes caches of renamed or removed shelves on the next read', async () => {
-    let resolved: { source: string; shelves: string[] | null } = { source: '甲', shelves: ['甲'] }
+  it('prunes caches of renamed or removed sources on the next read', async () => {
+    let resolved: { source: string; sources: string[] | null } = { source: '甲', sources: ['甲'] }
     const { runtime } = createFakeRuntime({
       resolveSource: async () => resolved,
       listCandidates: async (kind) => ({ source: resolved.source, candidates: [candidate(kind, `${resolved.source}-${kind}`, '0.1.0')] }),
@@ -133,16 +133,16 @@ describe('release store core', () => {
     const store = createReleaseStore(() => runtime, () => {})
 
     await store.read('tool')
-    resolved = { source: '甲改', shelves: ['甲改'] }
+    resolved = { source: '甲改', sources: ['甲改'] }
     await store.read('tool')
 
     expect(Object.keys(store.getSnapshot().cache.tool!)).toEqual(['甲改'])
   })
 
   it('prunes only the kind whose registry changed', async () => {
-    const resolved: Record<string, { source: string; shelves: string[] | null }> = {
-      tool: { source: '甲', shelves: ['甲'] },
-      plugin: { source: '乙', shelves: ['乙'] },
+    const resolved: Record<string, { source: string; sources: string[] | null }> = {
+      tool: { source: '甲', sources: ['甲'] },
+      plugin: { source: '乙', sources: ['乙'] },
     }
     const { runtime } = createFakeRuntime({
       resolveSource: async (kind) => resolved[kind],
@@ -152,7 +152,7 @@ describe('release store core', () => {
 
     await store.read('tool')
     await store.read('plugin')
-    resolved.tool = { source: '甲改', shelves: ['甲改'] }
+    resolved.tool = { source: '甲改', sources: ['甲改'] }
     await store.refresh('tool')
 
     const cache = store.getSnapshot().cache
@@ -161,7 +161,7 @@ describe('release store core', () => {
   })
 
   it('keeps shelf caches when the registry cannot be checked', async () => {
-    let resolved: { source: string; shelves: string[] | null } = { source: '甲', shelves: ['甲'] }
+    let resolved: { source: string; sources: string[] | null } = { source: '甲', sources: ['甲'] }
     const { runtime } = createFakeRuntime({
       resolveSource: async () => resolved,
       listCandidates: async (kind) => ({ source: resolved.source, candidates: [candidate(kind, `${resolved.source}-${kind}`, '0.1.0')] }),
@@ -169,7 +169,7 @@ describe('release store core', () => {
     const store = createReleaseStore(() => runtime, () => {})
 
     await store.read('tool')
-    resolved = { source: 'official', shelves: null }
+    resolved = { source: 'official', sources: null }
     await store.read('tool')
 
     expect(Object.keys(store.getSnapshot().cache.tool!).sort()).toEqual(['official', '甲'])

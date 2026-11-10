@@ -64,16 +64,21 @@ export type ReleaseArtifactKind = 'tool' | 'plugin'
 
 export const RELEASE_ARTIFACT_KINDS: ReleaseArtifactKind[] = ['tool', 'plugin']
 
-// Shelf 是用户注册的一条货架记录：名字是对外身份，路径是货架落点。
-export type Shelf = {
+// ReleaseSourceProvider 是来源提供方式：本机目录或网络商店。
+export type ReleaseSourceProvider = 'shelf' | 'remote'
+
+// ReleaseSource 是用户注册的一条商店来源：名字是对外唯一身份。
+export type ReleaseSource = {
   name: string
-  path: string
+  kind: ReleaseSourceProvider
+  path?: string
+  indexUrl?: string
 }
 
-// ShelfOutcome 是一次货架管理操作的结果：成功后带回最新注册表。
-export type ShelfOutcome = {
+// SourceOutcome 是一次来源管理操作的结果：成功后带回最新注册表。
+export type SourceOutcome = {
   ok: boolean
-  shelves: Shelf[]
+  sources: ReleaseSource[]
   error?: string
 }
 

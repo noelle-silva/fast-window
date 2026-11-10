@@ -12,9 +12,9 @@ import {
 } from '../domain/release'
 
 // ReleaseStoreRuntime 是核心执行一次读取所需的最小外部能力；
-// resolveSource 按类别解析来源，解析失败返回 null；货架名字列表为 null 表示本次无法核对（跳过缓存淘汰）。
+// resolveSource 按类别解析来源，解析失败返回 null；来源名字列表为 null 表示本次无法核对（跳过缓存淘汰）。
 export type ReleaseStoreRuntime = {
-  resolveSource: (kind: ReleaseArtifactKind) => Promise<{ source: ReleaseSourceKind; shelves: string[] | null } | null>
+  resolveSource: (kind: ReleaseArtifactKind) => Promise<{ source: ReleaseSourceKind; sources: string[] | null } | null>
   listInstallations: () => Promise<ArtifactInstallation[]>
   listCandidates: (kind: ReleaseArtifactKind) => Promise<ArtifactCandidateList>
 }
@@ -69,8 +69,8 @@ export function createReleaseStore(getRuntime: () => ReleaseStoreRuntime | null,
             sources[kind] = source
             changed = true
           }
-          if (resolved.shelves) {
-            const pruned = pruneReleaseCache(cache, kind, resolved.shelves)
+          if (resolved.sources) {
+            const pruned = pruneReleaseCache(cache, kind, resolved.sources)
             if (pruned !== cache) {
               cache = pruned
               changed = true

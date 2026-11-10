@@ -29,12 +29,12 @@ export function createToolActions(deps: {
   setToolInstallTerminalListener: (listener: ((id: string, state: any) => void) | null) => any
   getInstallSource: (kind: any) => any
   setInstallSource: (kind: any, source: string) => any
-  getShelves: (kind: any) => any
-  addShelf: (kind: any, name: any, path: any) => any
-  updateShelf: (kind: any, name: any, newName?: any, newPath?: any) => any
-  removeShelf: (kind: any, name: any) => any
+  getSources: (kind: any) => any
+  addSource: (kind: any, source: any) => any
+  updateSource: (kind: any, name: any, patch: any) => any
+  removeSource: (kind: any, name: any) => any
 }) {
-  const { state, emit, refreshTools, moveTool, openToolConfig, closeToolConfig, showToolWorkDirectoryView, setToolConfigValue, removeToolConfigValue, setToolPromptDescriptionDraft, resetToolPromptDescriptionDraftToDefault, setToolCapabilityGrant, selectConfigFile, setConfigFileDraft, addConfigFile, removeConfigFile, saveSelectedToolConfig, installTool, updateTool, importToolPackage, importToolFolder, cancelToolInstall, syncToolInstallStates, setToolInstallTerminalListener, getInstallSource, setInstallSource, getShelves, addShelf, updateShelf, removeShelf } = deps
+  const { state, emit, refreshTools, moveTool, openToolConfig, closeToolConfig, showToolWorkDirectoryView, setToolConfigValue, removeToolConfigValue, setToolPromptDescriptionDraft, resetToolPromptDescriptionDraftToDefault, setToolCapabilityGrant, selectConfigFile, setConfigFileDraft, addConfigFile, removeConfigFile, saveSelectedToolConfig, installTool, updateTool, importToolPackage, importToolFolder, cancelToolInstall, syncToolInstallStates, setToolInstallTerminalListener, getInstallSource, setInstallSource, getSources, addSource, updateSource, removeSource } = deps
 
   return {
     refreshTools: (force: any) => refreshTools(!!force),
@@ -61,10 +61,10 @@ export function createToolActions(deps: {
     setToolInstallTerminalListener: (listener: ((id: string, state: any) => void) | null) => setToolInstallTerminalListener(listener),
     getInstallSource: (kind: any) => getInstallSource(kind),
     setInstallSource: (kind: any, source: string) => setInstallSource(kind, source),
-    getShelves: (kind: any) => getShelves(kind),
-    addShelf: (kind: any, name: any, path: any) => addShelf(kind, name, path),
-    updateShelf: (kind: any, name: any, newName?: any, newPath?: any) => updateShelf(kind, name, newName, newPath),
-    removeShelf: (kind: any, name: any) => removeShelf(kind, name),
+    getSources: (kind: any) => getSources(kind),
+    addSource: (kind: any, source: any) => addSource(kind, source),
+    updateSource: (kind: any, name: any, patch: any) => updateSource(kind, name, patch),
+    removeSource: (kind: any, name: any) => removeSource(kind, name),
     openRoleToolAdd: () => {
       state.draft.roleToolAddOpen = true
       state.draft.roleToolSearch = ''

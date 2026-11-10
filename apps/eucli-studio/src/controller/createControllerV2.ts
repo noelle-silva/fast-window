@@ -826,7 +826,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   const installSourceClient = createInstallSourceClient({
     netRequest: capabilities.net?.request || ((() => Promise.resolve({})) as any),
   })
-  const { get: getInstallSource, set: setInstallSource, listShelves: getShelves, addShelf, updateShelf, removeShelf } = installSourceClient
+  const { get: getInstallSource, set: setInstallSource, listSources: getSources, addSource, updateSource, removeSource } = installSourceClient
 
   // 「AI 工具默认工作目录」：配置在业务端，是否引导过由客户端持久化记忆。
   const toolWorkDirectory = createToolWorkDirectoryController({
@@ -1335,10 +1335,10 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     setToolInstallTerminalListener,
     getInstallSource,
     setInstallSource,
-    getShelves,
-    addShelf,
-    updateShelf,
-    removeShelf,
+    getSources,
+    addSource,
+    updateSource,
+    removeSource,
   })
   const modelActions = createModelActions({
     refreshModelRequestConfig,

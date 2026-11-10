@@ -1,6 +1,6 @@
-import type { InstallSourceStatus, Shelf, ShelfOutcome } from '../domain/release'
+import type { InstallSourceStatus, ReleaseSource, ReleaseSourceProvider, SourceOutcome } from '../domain/release'
 
-// createInstallSourceClient 按发布物类别读写安装来源与货架注册表；
+// createInstallSourceClient 按发布物类别读写安装来源与来源注册表；
 // 工具与插件各有一份独立配置，接口按类别参数化。
 export function createInstallSourceClient(deps: {
   netRequest: (req: any) => Promise<any>
@@ -31,50 +31,69 @@ export function createInstallSourceClient(deps: {
     }
   }
 
-  async function listShelves(kind: string): Promise<{ shelves: Shelf[]; problem: string } | null> {
+  async function listSources(kind: string): Promise<{ sources: ReleaseSource[]; problem: string } | null> {
     try {
-      const response = await deps.netRequest({ method: 'GET', path: `/api/shelves/${encodeURIComponent(kind)}` })
+      const response = await deps.netRequest({ method: 'GET', path: `/api/sources/${encodeURIComponent(kind)}` })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
-      return { shelves: readShelves(response?.body), problem: String(response?.body?.problem || '').trim() }
+      return { sources: readSources(response?.body), problem: String(response?.body?.problem || '').trim() }
     } catch {
       return null
     }
   }
 
-  async function addShelf(kind: string, name: string, path: string): Promise<ShelfOutcome> {
-    return shelvesRequest(kind, 'POST', { name, path })
+  async function addSource(kind: string, source: ReleaseSource): Promise<SourceOutcome> {
+    return sourcesRequest(kind, 'POST', {
+      name: source.name,
+      kind: source.kind,
+      path: source.path,
+      indexUrl: source.indexUrl,
+    })
   }
 
-  async function updateShelf(kind: string, name: string, newName?: string, newPath?: string): Promise<ShelfOutcome> {
+  async function updateSource(
+    kind: string,
+    name: string,
+    patch: { newName?: string; newKind?: ReleaseSourceProvider; newPath?: string; newIndexUrl?: string },
+  ): Promise<SourceOutcome> {
     const body: Record<string, unknown> = { name }
-    if (newName !== undefined) body.newName = newName
-    if (newPath !== undefined) body.newPath = newPath
-    return shelvesRequest(kind, 'PATCH', body)
+    if (patch.newName !== undefined) body.newName = patch.newName
+    if (patch.newKind !== undefined) body.newKind = patch.newKind
+    if (patch.newPath !== undefined) body.newPath = patch.newPath
+    if (patch.newIndexUrl !== undefined) body.newIndexUrl = patch.newIndexUrl
+    return sourcesRequest(kind, 'PATCH', body)
   }
 
-  async function removeShelf(kind: string, name: string): Promise<ShelfOutcome> {
-    return shelvesRequest(kind, 'DELETE', { name })
+  async function removeSource(kind: string, name: string): Promise<SourceOutcome> {
+    return sourcesRequest(kind, 'DELETE', { name })
   }
 
-  async function shelvesRequest(kind: string, method: string, body: Record<string, unknown>): Promise<ShelfOutcome> {
+  async function sourcesRequest(kind: string, method: string, body: Record<string, unknown>): Promise<SourceOutcome> {
     try {
-      const response = await deps.netRequest({ method, path: `/api/shelves/${encodeURIComponent(kind)}`, body })
+      const response = await deps.netRequest({ method, path: `/api/sources/${encodeURIComponent(kind)}`, body })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
-      return { ok: true, shelves: readShelves(response?.body) }
+      return { ok: true, sources: readSources(response?.body) }
     } catch (error: any) {
-      return { ok: false, shelves: [], error: String(error?.message || error || '货架操作失败') }
+      return { ok: false, sources: [], error: String(error?.message || error || '商店来源操作失败') }
     }
   }
 
-  return { get, set, listShelves, addShelf, updateShelf, removeShelf }
+  return { get, set, listSources, addSource, updateSource, removeSource }
 }
 
-function readShelves(body: any): Shelf[] {
-  const raw = body && typeof body === 'object' ? (body as any).shelves : null
+function readSources(body: any): ReleaseSource[] {
+  const raw = body && typeof body === 'object' ? (body as any).sources : null
   if (!Array.isArray(raw)) return []
   return raw
-    .map((item: any) => ({ name: String(item?.name || '').trim(), path: String(item?.path || '').trim() }))
-    .filter((item: Shelf) => item.name !== '')
+    .map((item: any) => {
+      const kind: ReleaseSourceProvider = String(item?.kind || '').trim() === 'remote' ? 'remote' : 'shelf'
+      return {
+        name: String(item?.name || '').trim(),
+        kind,
+        path: String(item?.path || '').trim() || undefined,
+        indexUrl: String(item?.indexUrl || '').trim() || undefined,
+      }
+    })
+    .filter((item: ReleaseSource) => item.name !== '')
 }
