@@ -154,32 +154,8 @@ export function ChatComposer(props: {
   const liveDraft = controller.getComposerDraft()
   const draftImages = Array.isArray(liveDraft?.images) ? liveDraft.images : []
 
-  // 提示词「填入」：按聊天输入框当前的光标位置插入正文，插完把光标停在正文后面。
+  // 提示词「填入」的回落路径（右栏不在时）：光标在框里就插光标处，否则补到末尾。
   // 用外部写入的入口，广播一次让输入区与提示词库右栏一起对账到新草稿。
-  //
-  // 模态窗打开后输入框已经失焦，selectionStart 会退回起点甚至 0，
-  // 所以平时就把最后一次的选区记下来，插入时优先用它。
-  const composerCaretRef = React.useRef<{ start: number; end: number }>({ start: 0, end: 0 })
-  React.useEffect(() => {
-    const el = composerInputRef.current
-    if (!el) return
-    const record = () => {
-      const start = typeof el.selectionStart === 'number' ? el.selectionStart : null
-      const end = typeof el.selectionEnd === 'number' ? el.selectionEnd : null
-      if (start === null || end === null) return
-      composerCaretRef.current = { start, end }
-    }
-    record()
-    el.addEventListener('keyup', record)
-    el.addEventListener('mouseup', record)
-    el.addEventListener('blur', record)
-    return () => {
-      el.removeEventListener('keyup', record)
-      el.removeEventListener('mouseup', record)
-      el.removeEventListener('blur', record)
-    }
-  }, [composerInputRef])
-
   const insertPromptText = useEvent((content: string) => {
     const body = String(content || '')
     if (!body) return
@@ -187,15 +163,10 @@ export function ChatComposer(props: {
     const current = String(controller.getComposerDraft()?.input || '')
     const clamp = (value: number) => Math.max(0, Math.min(value, current.length))
     const focused = el != null && document.activeElement === el
-    const liveStart = el && typeof el.selectionStart === 'number' ? el.selectionStart : null
-    const liveEnd = el && typeof el.selectionEnd === 'number' ? el.selectionEnd : null
-    const start = clamp(focused && liveStart !== null ? liveStart : composerCaretRef.current.start)
-    const end = clamp(focused && liveEnd !== null ? liveEnd : composerCaretRef.current.end)
+    const start = clamp(focused && typeof el?.selectionStart === 'number' ? el.selectionStart : current.length)
+    const end = clamp(focused && typeof el?.selectionEnd === 'number' ? el.selectionEnd : current.length)
     controller.actions.setComposerInputExternal?.(current.slice(0, start) + body + current.slice(end))
     const caret = start + body.length
-    composerCaretRef.current = { start: caret, end: caret }
-    // 模态窗开着时插入由右栏执行，这里只是右栏不在时的回落：
-    // 焦点抢不回来就只把选区留在原位，关窗的事不归这条路径管。
     try {
       el?.setSelectionRange?.(caret, caret)
     } catch (_) {}

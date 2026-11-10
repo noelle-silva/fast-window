@@ -100,28 +100,7 @@ export function ComposerTextArea(props: {
   const [atPicker, setAtPicker] = React.useState<null | { triggerIndex: number; cursorIndex: number; query: string }>(null)
   const [slashPicker, setSlashPicker] = React.useState<null | { query: string; selectedIndex: number }>(null)
 
-  // 记住最后一次选区：点按钮时焦点离开输入框，selectionStart 会退回起点甚至 0。
-  const caretRef = React.useRef<{ start: number; end: number }>({ start: 0, end: 0 })
-  React.useEffect(() => {
-    const el = localInputRef.current
-    if (!el) return
-    const record = () => {
-      const start = typeof el.selectionStart === 'number' ? el.selectionStart : null
-      const end = typeof el.selectionEnd === 'number' ? el.selectionEnd : null
-      if (start === null || end === null) return
-      caretRef.current = { start, end }
-    }
-    record()
-    el.addEventListener('keyup', record)
-    el.addEventListener('mouseup', record)
-    el.addEventListener('blur', record)
-    return () => {
-      el.removeEventListener('keyup', record)
-      el.removeEventListener('mouseup', record)
-      el.removeEventListener('blur', record)
-    }
-  }, [])
-
+  // 光标还在框里就插在光标处；光标已经离开，就直接补到末尾——不留记忆位置。
   const insertAtCaret = useEvent((text: string) => {
     const body = String(text || '')
     if (!body) return false
@@ -129,18 +108,20 @@ export function ComposerTextArea(props: {
     const current = String(value || '')
     const clamp = (value: number) => Math.max(0, Math.min(value, current.length))
     const focused = el != null && document.activeElement === el
-    const start = clamp(focused && typeof el.selectionStart === 'number' ? el.selectionStart : caretRef.current.start)
-    const end = clamp(focused && typeof el.selectionEnd === 'number' ? el.selectionEnd : caretRef.current.end)
+    const start = clamp(focused && typeof el.selectionStart === 'number' ? el.selectionStart : current.length)
+    const end = clamp(focused && typeof el.selectionEnd === 'number' ? el.selectionEnd : current.length)
     onChange(current.slice(0, start) + body + current.slice(end))
     const caret = start + body.length
-    caretRef.current = { start: caret, end: caret }
-    // 定位放到下一次绘制之后：这一步的 onChange 会重渲染输入框，选区会被重置。
-    requestAnimationFrame(() => {
+    // 先同步落一次，再在下一次绘制后补一次：
+    // onChange 引起的重渲染会把选区重置，光靠同步那一次会被覆盖。
+    const placeCaret = () => {
       try {
         el?.focus()
         el?.setSelectionRange?.(caret, caret)
       } catch (_) {}
-    })
+    }
+    placeCaret()
+    requestAnimationFrame(placeCaret)
     return true
   })
 

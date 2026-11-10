@@ -81,6 +81,13 @@ function stopPointerPropagation(event: React.PointerEvent) {
   event.stopPropagation()
 }
 
+// 填入按钮专用：按下时既不冒泡给拖拽，也不让按钮抢走输入框的焦点。
+// 焦点一旦转移，输入框的选区就不可信，插入位置只能退回末尾。
+function holdInputFocusPointer(event: React.PointerEvent) {
+  event.stopPropagation()
+  event.preventDefault()
+}
+
 // 行样式 = 共用行常量 + 拖拽态，与实体列表的组装方式保持一致。
 function sortableRowSx(drag: SortableItemRenderArgs | null): SxProps<Theme> {
   // 圆角收到 10：行高 50 上下时 18 的圆角已经接近胶囊，这里要的是圆角矩形。
@@ -285,7 +292,8 @@ export function PromptLibrarySidebar(props: PromptLibrarySidebarProps) {
                                     <IconButton
                                       size="small"
                                       aria-label="填入提示词内容"
-                                      onPointerDown={stopPointerPropagation}
+                                      onPointerDown={holdInputFocusPointer}
+                                      onMouseDown={(event) => event.preventDefault()}
                                       onClick={(event) => {
                                         event.preventDefault()
                                         event.stopPropagation()
