@@ -7,6 +7,8 @@ export type CustomScrollAreaProps = {
   children: React.ReactNode
   // axis='y'：只保留纵向滚动，横向溢出裁切，不出现横向滚动条。
   axis?: 'both' | 'y'
+  // 关掉自制滑块：容器照样能滚，只是不画滚动条（原生滚动条本来就一直藏着）。
+  showThumbs?: boolean
   hostSx?: SxProps<Theme>
   scrollSx?: SxProps<Theme>
   contentSx?: SxProps<Theme>
@@ -21,7 +23,7 @@ function sxList(value?: SxProps<Theme>) {
 }
 
 export const CustomScrollArea = React.forwardRef<HTMLDivElement, CustomScrollAreaProps>(function CustomScrollArea(props, forwardedRef) {
-  const { children, axis = 'both', hostSx, scrollSx, contentSx, className, onClick, onScrollPositionChange } = props
+  const { children, axis = 'both', showThumbs = true, hostSx, scrollSx, contentSx, className, onClick, onScrollPositionChange } = props
   const scrollRef = React.useRef<HTMLDivElement | null>(null)
   const contentRef = React.useRef<HTMLDivElement | null>(null)
 
@@ -37,7 +39,7 @@ export const CustomScrollArea = React.forwardRef<HTMLDivElement, CustomScrollAre
           position: 'relative',
           minWidth: 0,
           minHeight: 0,
-          ...customScrollbarRevealSx,
+          ...(showThumbs ? customScrollbarRevealSx : null),
         },
         ...sxList(hostSx),
       ]}
@@ -61,7 +63,7 @@ export const CustomScrollArea = React.forwardRef<HTMLDivElement, CustomScrollAre
         </Box>
       </Box>
 
-      <CustomScrollbarThumbs metrics={metrics} dragging={dragging} onBeginDrag={beginDrag} />
+      {showThumbs ? <CustomScrollbarThumbs metrics={metrics} dragging={dragging} onBeginDrag={beginDrag} /> : null}
     </Box>
   )
 })
