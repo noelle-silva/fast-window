@@ -60,6 +60,8 @@ type TaskTreePanelProps = {
   workspaces?: any[]
   /** 打开时落在哪一段作用域（输入区模态窗按按钮预置）；面板内仍可切换。 */
   initialScope?: TaskScope
+  /** 锁定作用域：给出它就不再渲染切换栏，整个面板只服务这一段（输入区两个独立入口用）。 */
+  lockedScope?: TaskScope
   /** 打开时优先选中的归属（例如当前角色）；不在列表里时回落到第一个。 */
   initialOwnerId?: string
   /** 切换作用域时优先选中的归属：当前会话的角色 / 工作区。 */
@@ -92,6 +94,7 @@ export function TaskTreePanel(props: TaskTreePanelProps) {
     roles = [],
     workspaces = [],
     initialScope = 'role',
+    lockedScope,
     initialOwnerId = '',
     preferredOwnerIds = {},
     browseState = {},
@@ -99,7 +102,7 @@ export function TaskTreePanel(props: TaskTreePanelProps) {
   } = props
 
   const initialBrowse = browseState[initialScope] || {}
-  const [scope, setScope] = React.useState<TaskScope>(initialScope)
+  const [scope, setScope] = React.useState<TaskScope>(lockedScope ?? initialScope)
   const [ownerId, setOwnerId] = React.useState(String(initialBrowse.ownerId || initialOwnerId || ''))
   const [ownerSearch, setOwnerSearch] = React.useState('')
   const [tree, setTree] = React.useState<TaskTree>(EMPTY_TASK_TREE)
@@ -356,25 +359,28 @@ export function TaskTreePanel(props: TaskTreePanelProps) {
 
   return (
     <SettingsSurface sx={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', gap: 1.25 }}>
-      {/* 作用域：任务只有角色与工作区，没有全局。 */}
-      <Box sx={{ display: 'flex', gap: 0.5, p: 0.5, borderRadius: 2, bgcolor: 'var(--studio-field)' }}>
-        {TASK_SCOPES.map((value) => {
-          const active = scope === value
-          return (
-            <Button
-              key={value}
-              fullWidth
-              size="small"
-              disableElevation
-              variant="contained"
-              onClick={() => switchScope(value)}
-              sx={active ? { borderRadius: 1.5, fontWeight: 700, py: 0.5 } : [{ borderRadius: 1.5, fontWeight: 700, py: 0.5 }, FILLED_SECONDARY_SX]}
-            >
-              {TASK_SCOPE_LABELS[value]}
-            </Button>
-          )
-        })}
-      </Box>
+      {/* 作用域：任务只有角色与工作区，没有全局。
+          从输入区的两个入口进来时作用域已经由按钮定死，这里不再给切换。 */}
+      {lockedScope ? null : (
+        <Box sx={{ display: 'flex', gap: 0.5, p: 0.5, borderRadius: 2, bgcolor: 'var(--studio-field)' }}>
+          {TASK_SCOPES.map((value) => {
+            const active = scope === value
+            return (
+              <Button
+                key={value}
+                fullWidth
+                size="small"
+                disableElevation
+                variant="contained"
+                onClick={() => switchScope(value)}
+                sx={active ? { borderRadius: 1.5, fontWeight: 700, py: 0.5 } : [{ borderRadius: 1.5, fontWeight: 700, py: 0.5 }, FILLED_SECONDARY_SX]}
+              >
+                {TASK_SCOPE_LABELS[value]}
+              </Button>
+            )
+          })}
+        </Box>
+      )}
 
       <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
         <Button

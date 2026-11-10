@@ -57,7 +57,8 @@ describe('normalizeComposerToolsLayout', () => {
       'global-prompts',
       'role-prompts',
       'workspace-prompts',
-      'task-tree',
+      'task-tree-role',
+      'task-tree-workspace',
     ])
   })
 
@@ -67,7 +68,14 @@ describe('normalizeComposerToolsLayout', () => {
       menu: ['clean-reasoning'],
     })
 
-    expect(layout.menu).toEqual(['clean-reasoning', 'global-prompts', 'role-prompts', 'workspace-prompts', 'task-tree'])
+    expect(layout.menu).toEqual([
+      'clean-reasoning',
+      'global-prompts',
+      'role-prompts',
+      'workspace-prompts',
+      'task-tree-role',
+      'task-tree-workspace',
+    ])
     expect(layout.inline).not.toContain('global-prompts')
   })
 })

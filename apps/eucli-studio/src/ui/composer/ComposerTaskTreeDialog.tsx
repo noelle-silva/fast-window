@@ -5,7 +5,7 @@ import { TaskTreePanel, type TaskTreeBrowseState } from '../settings/TaskTreePan
 import type { TaskScope } from '../../domain/taskTree'
 
 // 输入区的任务入口：模态窗里直接挂设置页那套面板。
-// 不设标题栏：面板顶部就是作用域切换，当前在看哪一份任务由它自己说明。
+// 角色任务与工作区任务是两个独立入口，各自开各自的窗，窗内不再有作用域切换。
 // 面板用 key 绑作用域，换按钮 = 重新挂载，归属选择与层级路径不会串到另一段作用域。
 // 浏览位置（各段停留的归属与层级）由调用方按会话保存，开关窗口不丢。
 export function ComposerTaskTreeDialog(props: {
@@ -50,6 +50,7 @@ export function ComposerTaskTreeDialog(props: {
               roles={roles}
               workspaces={workspaces}
               initialScope={scope}
+              lockedScope={scope}
               initialOwnerId={scope === 'role' ? activeRoleId : activeWorkspaceId}
               preferredOwnerIds={{ role: activeRoleId, workspace: activeWorkspaceId }}
               browseState={browseState}
