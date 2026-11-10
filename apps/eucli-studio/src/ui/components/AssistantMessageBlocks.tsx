@@ -352,7 +352,7 @@ function ToolBlockCard(props: {
       data-stop="1"
       sx={{
         bgcolor: tone.bgcolor,
-        borderRadius: 3,
+        borderRadius: 1.5,
         px: 1.1,
         py: 0.9,
         overflow: 'hidden',
