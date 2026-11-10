@@ -224,8 +224,9 @@ export function buildComposerToolEntries(ctx: ComposerToolEntriesContext): Recor
     },
   })
 
-  // 任务清单两个入口结构一致：直显是短文字按钮，菜单里是一行「角色任务 / 工作区任务」。
-  const taskTreeEntry = (id: ComposerToolId, scope: TaskScope, label: string): ComposerToolEntry => ({
+  // 任务清单两个入口结构一致：直显是文字按钮，菜单里是一行「角色任务 / 工作区任务」。
+  const taskTreeEntry = (id: ComposerToolId, scope: TaskScope, label: string, hidden = false): ComposerToolEntry => ({
+    hidden,
     inline: (
       <Button
         aria-label={label}
@@ -488,14 +489,15 @@ export function buildComposerToolEntries(ctx: ComposerToolEntriesContext): Recor
       },
     },
 
-    'global-prompts': promptLibraryEntry('global-prompts', 'global', '全局'),
-    'role-prompts': promptLibraryEntry('role-prompts', 'role', '角色'),
+    'global-prompts': promptLibraryEntry('global-prompts', 'global', '全局提示词'),
+    'role-prompts': promptLibraryEntry('role-prompts', 'role', '角色提示词'),
     // 工作区库只在工作区上下文里有意义；不在工作区时连入口一起收掉。
-    'workspace-prompts': promptLibraryEntry('workspace-prompts', 'workspace', '工作区', activeTargetKind !== 'workspace'),
+    'workspace-prompts': promptLibraryEntry('workspace-prompts', 'workspace', '工作区提示词', activeTargetKind !== 'workspace'),
 
     // 任务清单拆成两个入口：各开各的窗，窗里不再有作用域切换。
+    // 工作区任务只在工作区上下文里有意义，角色会话里连入口一起收掉。
     'task-tree-role': taskTreeEntry('task-tree-role', 'role', '角色任务'),
-    'task-tree-workspace': taskTreeEntry('task-tree-workspace', 'workspace', '工作区任务'),
+    'task-tree-workspace': taskTreeEntry('task-tree-workspace', 'workspace', '工作区任务', activeTargetKind !== 'workspace'),
   }
 }
 
