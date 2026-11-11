@@ -34,7 +34,7 @@ function deskData(refs: any[] = [deskRef(), wsRef]) {
       { id: 'role-b', name: '乙角色', avatarImage: 'role-avatar-src' },
     ],
     workspaces: [{ id: 'ws-1', name: '工作区一', icon: workspaceIcon }],
-    chatsByRole: { 'role-a': { chatMetas: [{ id: 'chat-1', title: '甲会话' }] } },
+    chatsByRole: { 'role-a': { chatMetas: [{ id: 'chat-1', title: '甲会话', contextTokens: 48000 }] } },
     chatsByWorkspace: { 'ws-1::role-b': { chatMetas: [{ id: 'chat-2', title: '乙会话' }] } },
   }
 }
@@ -229,14 +229,23 @@ describe('侧边栏 B 的工作桌面', () => {
     expect(row('乙会话').textContent).not.toContain('running...')
   })
 
-  it('运行标记和名称同在一个上下叠放的容器里，不占名称的横向位置', () => {
+  it('运行标记落在第三行，和上下文用量并排，不占名称的横向位置', () => {
     renderPanel({ runningChatIds: new Set(['chat-1']) })
 
     const mark = Array.from(row('甲会话').querySelectorAll('*')).find((it) => it.textContent === 'running...')
     expect(mark).toBeTruthy()
-    const column = mark!.parentElement!.parentElement as HTMLElement
-    expect(column.textContent).toContain('甲会话')
-    expect(column.textContent).toContain('running...')
+    const usageRow = mark!.parentElement as HTMLElement
+    expect(usageRow.textContent).toContain('48k')
+    expect(usageRow.textContent).toContain('running...')
+    expect(usageRow.textContent).not.toContain('甲会话')
+    expect((usageRow.parentElement as HTMLElement).textContent).toContain('甲会话')
+  })
+
+  it('第三行显示会话已经用掉的上下文，没有真值的条目显示问号', () => {
+    renderPanel()
+
+    expect(row('甲会话').textContent).toContain('48k')
+    expect(row('乙会话').textContent).toContain('?')
   })
 
   it('工作区条目悬停换成所属角色图标，开关关掉就一直是工作区图标', () => {

@@ -28,6 +28,7 @@ function entry(overrides: Partial<DeskEntry> = {}): DeskEntry {
     roleName: '',
     avatarImage: '',
     roleAvatarImage: '',
+    contextTokens: 0,
     ...overrides,
   }
 }
@@ -94,7 +95,7 @@ describe('侧边栏 B 会话行', () => {
     expect(rowTextOf('甲会话')).toContain('甲角色')
   })
 
-  it('工作区来源的会话常驻「工作区名/角色名」，运行标记接在它右边', () => {
+  it('工作区来源的会话常驻「工作区名/角色名」，运行标记出现在第三行', () => {
     renderList(
       [
         entry({
@@ -115,6 +116,20 @@ describe('侧边栏 B 会话行', () => {
     expect(text).toContain('工作区一/乙角色')
     expect(text).toContain('running...')
     expect(text.indexOf('工作区一/乙角色')).toBeLessThan(text.indexOf('running...'))
+  })
+
+  it('来源下面第三行是已使用的上下文，运行标记与它并排', () => {
+    renderList([entry({ contextTokens: 8400 })], ['chat-1'])
+
+    const text = rowTextOf('甲会话')
+    expect(text).toContain('8.4k')
+    expect(text.indexOf('甲角色')).toBeLessThan(text.indexOf('8.4k'))
+    expect(text.indexOf('8.4k')).toBeLessThan(text.indexOf('running...'))
+  })
+
+  it('没有上下文真值时显示问号，不编数字', () => {
+    renderList([entry({ contextTokens: 0 })])
+    expect(rowTextOf('甲会话')).toContain('?')
   })
 
   it('不运行的会话不显示 running 标记，来源字样仍在', () => {

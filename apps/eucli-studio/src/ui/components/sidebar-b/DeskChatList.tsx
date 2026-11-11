@@ -7,6 +7,7 @@ import PersonOutlinedIcon from '@mui/icons-material/PersonOutlined'
 import { colorMixVar } from '../../colorThemeStyles'
 import type { DeskEntry, DeskTargetKind } from '../../../domain/desks'
 import type { DeskDraft } from '../../../domain/deskDrafts'
+import { formatContextTokens } from '../../../domain/messageMetaLine'
 import { sessionSourceLabel } from '../../../domain/sessionSourceLabel'
 import type { DeskNoticeDotKind } from '../../deskNotice'
 import { SortableItem, SortableRoot, SortableSection } from '../SortableDnd'
@@ -17,9 +18,11 @@ import { useSortableClickGuard } from '../useSortableClickGuard'
 // 叉的左边是通知点：等待确认（黄）/ 异常中断（红）/ 已完成未读（绿），点它就清掉这条提醒。
 // 整行可拖：拖完按前后关系交回桌面顺序动作，顺序真正落盘。
 // 图标槽统一成圆角方块，角色 / 群 / 工作区三者同尺寸，有自定义图就显示图，没有就显示线性图标。
-const ROW_HEIGHT = 40
+// 行内三行文字：名称、来源、上下文用量（运行时后面接 running），
+// 所以行高按「14 + 12 + 12 + 两个 1 点间隔 + 上下各 4 点内边距」定成 48。
+const ROW_HEIGHT = 48
 const ICON_SIZE = 27
-// 圆角矩形而不是胶囊：40 高的行配 8 点圆角，四角是方的、只是打磨过。
+// 圆角矩形而不是胶囊：48 高的行配 8 点圆角，四角是方的、只是打磨过。
 const ROW_RADIUS = 1
 const ICON_RADIUS = 1
 
@@ -150,7 +153,11 @@ function DeskRow(props: {
   const [hovered, setHovered] = React.useState(false)
 
   // 悬停说明与第二行的来源字样同源：工作区会话写作「工作区名/角色名」，角色会话只有角色名。
+  // 第三行的上下文用量本身没有文字标签，悬停时接在来源后面解释这个数字是从哪来的；
+  // 没有真值时不写「上下文 ?」，只留来源。
   const sourceLabel = sessionSourceLabel(entry)
+  const contextUsageText = formatContextTokens(entry.contextTokens)
+  const hoverTitle = [sourceLabel, entry.contextTokens > 0 ? `上下文 ${contextUsageText}` : ''].filter(Boolean).join(' · ')
 
   // 悬停换图标只作用于工作区来源；角色没设头像时自然落回角色默认图标。
   const swapToRole = hoverShowsRoleIcon && entry.targetKind === 'workspace' && hovered
@@ -158,7 +165,7 @@ function DeskRow(props: {
   const iconImage = swapToRole ? entry.roleAvatarImage : entry.avatarImage
 
   return (
-    <Tooltip title={sourceLabel} placement="left">
+    <Tooltip title={hoverTitle} placement="left">
       <Box
         ref={dragArgs.setNodeRef as any}
         style={dragArgs.style}
@@ -203,8 +210,8 @@ function DeskRow(props: {
       >
         <DeskEntryIcon kind={iconKind} image={iconImage} active={active} />
 
-        {/* 名称在上，来源与运行标记并排在下一行：来源常驻（工作区名/角色名，角色只有角色名），
-            跑起来时在它右边接上 running。两行压在 40 点行高内；来源过长时让位给运行标记。 */}
+        {/* 三行叠放：名称 / 来源 / 上下文用量。来源常驻（工作区名/角色名，角色只有角色名）；
+            第三行是这条会话已使用的上下文规模，跑起来时在它右边接上 running。 */}
         <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '1px' }}>
           <Typography
             noWrap
@@ -217,22 +224,34 @@ function DeskRow(props: {
           >
             {entry.title}
           </Typography>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: '4px', minWidth: 0 }}>
-            {sourceLabel ? (
-              <Typography
-                noWrap
-                sx={{
-                  flex: '0 1 auto',
-                  minWidth: 0,
-                  fontSize: 10,
-                  lineHeight: '12px',
-                  fontWeight: 600,
-                  color: active ? 'text.secondary' : 'text.disabled',
-                }}
-              >
-                {sourceLabel}
-              </Typography>
-            ) : null}
+          {sourceLabel ? (
+            <Typography
+              noWrap
+              sx={{
+                fontSize: 10,
+                lineHeight: '12px',
+                fontWeight: 600,
+                color: active ? 'text.secondary' : 'text.disabled',
+              }}
+            >
+              {sourceLabel}
+            </Typography>
+          ) : null}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: '4px', minWidth: 0, overflow: 'hidden' }}>
+            <Typography
+              noWrap
+              sx={{
+                flex: '0 1 auto',
+                minWidth: 0,
+                fontSize: 10,
+                lineHeight: '12px',
+                fontWeight: 600,
+                fontVariantNumeric: 'tabular-nums',
+                color: active ? 'text.secondary' : 'text.disabled',
+              }}
+            >
+              {contextUsageText}
+            </Typography>
             {running ? (
               <Box
                 sx={{

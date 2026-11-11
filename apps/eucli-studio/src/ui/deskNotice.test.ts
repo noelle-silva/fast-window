@@ -16,6 +16,7 @@ function entry(overrides: Partial<DeskEntry> = {}): DeskEntry {
     roleName: '',
     avatarImage: '',
     roleAvatarImage: '',
+    contextTokens: 0,
     ...overrides,
   }
 }
