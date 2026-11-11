@@ -163,14 +163,69 @@ describe('ChatMessageList streaming body mounting', () => {
       root.render(<ChatMessageList {...props} />)
     })
 
-    expect(Array.from(host.querySelectorAll('[data-mid]')).map((node) => node.getAttribute('data-mid'))).toEqual([
+    expect(Array.from(host.querySelectorAll('[data-mid]')).map((node) => node.getAttribute('data-mid')).sort()).toEqual([
       'm-0',
       'm-1',
       'm-2',
       'm-3',
     ])
-    expect(host.querySelector('[data-fw-message-batch="staging"]')?.getAttribute('aria-hidden')).toBe('true')
-    expect(host.querySelector('[data-fw-message-batch="revealed"]')?.hasAttribute('aria-hidden')).toBe(false)
+    // 已揭示批次直接并入时间线（不再有独立容器），只有缓存批次保留屏外暂存容器。
+    const staging = host.querySelectorAll('[data-fw-message-batch]')
+    expect(staging.length).toBe(1)
+    expect(staging[0].getAttribute('data-fw-message-batch')).toBe('staging')
+    expect(staging[0].getAttribute('aria-hidden')).toBe('true')
+  })
+
+  // 回归：区间识别必须覆盖「已揭示批次 + 尾部」这条完整时间线。
+  // 只按尾部算会把更早的工具过程整段漏掉，并把跨批次的区间截短。
+  it('工作过程区间跨已揭示批次与尾部仍完整', () => {
+    const controller = {
+      getScopeVer: () => 0,
+      subscribeScope: () => () => {},
+      getMessageById: () => null,
+      renderAssistantInto: vi.fn(),
+      fmtTime: () => '',
+    }
+    const makeMessage = (id: string, role: 'user' | 'assistant', tools = 0) => ({
+      id,
+      role,
+      type: role,
+      content: id,
+      parts: Array.from({ length: tools }, (_, index) => ({ id: `${id}-tool-${index}`, type: 'tool' })),
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    const user = makeMessage('m-0', 'user')
+    const toolFirst = makeMessage('m-1', 'assistant', 1)
+    const toolSecond = makeMessage('m-2', 'assistant', 1)
+    const answer = makeMessage('m-3', 'assistant', 0)
+
+    const props: any = createProps(controller, answer)
+    props.messages = [answer]
+    props.messageBatchGroups = [
+      { key: 'batch-1', messages: [user, toolFirst], revealed: true },
+      { key: 'batch-2', messages: [toolSecond], revealed: true },
+    ]
+
+    host = document.createElement('div')
+    document.body.appendChild(host)
+    root = createRoot(host)
+    act(() => {
+      root.render(<ChatMessageList {...props} />)
+    })
+
+    const startBar = host.querySelector('[data-tool-process-divider="start"]') as HTMLElement | null
+    const endBar = host.querySelector('[data-tool-process-divider="end"]') as HTMLElement | null
+    expect(startBar).not.toBeNull()
+    expect(endBar).not.toBeNull()
+    expect(startBar!.textContent).toContain('2 轮')
+    expect(startBar!.textContent).toContain('2 次工具调用')
+
+    // 区间面板里应当同时装下批次里的 m-1 与尾部的 m-2。
+    const panel = startBar!.parentElement as HTMLElement
+    const inside = Array.from(panel.querySelectorAll('[data-mid]')).map((node) => node.getAttribute('data-mid'))
+    expect(inside).toContain('m-1')
+    expect(inside).toContain('m-2')
   })
 
   it('pins generating messages and the pending run tail against offscreen skipping', () => {

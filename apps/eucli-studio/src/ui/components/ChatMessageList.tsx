@@ -278,12 +278,30 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
   }, [])
   React.useEffect(() => setCollapsedToolProcess(new Set()), [cacheScope])
 
+  // 已揭示的历史批次与尾部可见区处在同一条时间线上：分批上屏只决定「谁先可交互」，
+  // 不该成为工作过程区间的语义边界——否则更早的一批工具过程永远落不进任何区间。
+  // staging 批次仍是独立的屏外暂存容器，不参与区间识别。
+  const revealedFlow = React.useMemo(() => {
+    const flow: any[] = []
+    for (const batch of messageBatchGroups) {
+      if (!batch.revealed) continue
+      for (const message of batch.messages) flow.push(message)
+    }
+    for (const message of messages) flow.push(message)
+    return flow
+  }, [messageBatchGroups, messages])
+
+  const stagingBatches = React.useMemo(
+    () => messageBatchGroups.filter((batch) => !batch.revealed),
+    [messageBatchGroups],
+  )
+
   const messageRows = React.useMemo(() => {
     const rows: React.ReactNode[] = []
     let cursor = 0
-    for (const range of findToolProcessRanges(messages)) {
-      for (let index = cursor; index < range.start; index++) rows.push(renderRow(messages[index]))
-      const key = `tool-process:${messageId(messages[range.start]) || range.start}`
+    for (const range of findToolProcessRanges(revealedFlow)) {
+      for (let index = cursor; index < range.start; index++) rows.push(renderRow(revealedFlow[index]))
+      const key = `tool-process:${messageId(revealedFlow[range.start]) || range.start}`
       const onToggle = () => toggleToolProcess(key)
       const collapsed = collapsedToolProcess.has(key)
       rows.push(
@@ -298,7 +316,7 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
           {toolProcessBar('start', range, !collapsed, onToggle)}
           <Collapse in={!collapsed} timeout={180} unmountOnExit>
             <Stack spacing={1.25} sx={{ pt: 1.25 }}>
-              {messages.slice(range.start, range.end + 1).map(renderRow)}
+              {revealedFlow.slice(range.start, range.end + 1).map(renderRow)}
               {toolProcessBar('end', range, true, onToggle)}
             </Stack>
           </Collapse>
@@ -306,19 +324,14 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
       )
       cursor = range.end + 1
     }
-    for (let index = cursor; index < messages.length; index++) rows.push(renderRow(messages[index]))
+    for (let index = cursor; index < revealedFlow.length; index++) rows.push(renderRow(revealedFlow[index]))
     return rows
-  }, [messages, renderRow, collapsedToolProcess, toggleToolProcess])
+  }, [revealedFlow, renderRow, collapsedToolProcess, toggleToolProcess])
 
   return (
     <Stack spacing={1.25} useFlexGap sx={{ position: 'relative' }}>
-      {messageBatchGroups.map((batch) => (
-        <Box
-          key={batch.key}
-          data-fw-message-batch={batch.revealed ? 'revealed' : 'staging'}
-          aria-hidden={batch.revealed ? undefined : true}
-          sx={batch.revealed ? undefined : STAGING_MESSAGE_BATCH_SX}
-        >
+      {stagingBatches.map((batch) => (
+        <Box key={batch.key} data-fw-message-batch="staging" aria-hidden sx={STAGING_MESSAGE_BATCH_SX}>
           <Stack spacing={1.25} useFlexGap>{batch.messages.map(renderRow)}</Stack>
         </Box>
       ))}
