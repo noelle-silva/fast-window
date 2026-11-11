@@ -4,17 +4,15 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { useSessionScrollNav } from './useSessionScrollNav'
-import { applySessionScrollIntent, type SessionScrollIntent } from '../scroll/sessionScrollNav'
+import { resolveSessionScrollTop, type SessionScrollIntent } from '../scroll/sessionScrollNav'
 
 ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
 
 // 滚动几何在 happy-dom 里恒为 0，只能自己铺一套可写的度量。
-// scrollTo 也接过来：记下用的是哪条滚动通道，并立刻落位，模拟动画走完的那一刻。
 type ScrollState = {
   scrollTop: number
   clientHeight: number
   scrollHeight: number
-  behavior?: ScrollBehavior
 }
 
 function makeScrollBox(state: ScrollState) {
@@ -28,13 +26,6 @@ function makeScrollBox(state: ScrollState) {
   })
   Object.defineProperty(el, 'clientHeight', { get: () => state.clientHeight, configurable: true })
   Object.defineProperty(el, 'scrollHeight', { get: () => state.scrollHeight, configurable: true })
-  Object.defineProperty(el, 'scrollTo', {
-    value: (options: { top: number; behavior?: ScrollBehavior }) => {
-      state.behavior = options.behavior || 'auto'
-      state.scrollTop = options.top
-    },
-    configurable: true,
-  })
   return el
 }
 
@@ -45,7 +36,11 @@ function Harness(props: {
 }) {
   const onIntent = React.useCallback(
     (intent: SessionScrollIntent, el: HTMLElement) => {
-      applySessionScrollIntent(el, intent)
+      el.scrollTop = resolveSessionScrollTop(
+        { scrollTop: el.scrollTop, clientHeight: el.clientHeight, scrollHeight: el.scrollHeight },
+        intent,
+        0.875,
+      )
       props.applied.push(intent)
     },
     [props.applied],
@@ -106,7 +101,6 @@ describe('会话消息区的键盘翻页接线', () => {
 
     expect(notCanceled).toBe(false)
     expect(state.scrollTop).toBe(1000 + 700)
-    expect(state.behavior).toBe('smooth')
     expect(applied).toEqual(['page-down'])
   })
 

@@ -52,6 +52,12 @@ import {
   normalizeSessionKeepAliveLimit,
 } from '../../domain/sessionKeepAlive'
 import {
+  SESSION_SCROLL_STEP_PERCENT_MAX,
+  SESSION_SCROLL_STEP_PERCENT_MIN,
+  SESSION_SCROLL_STEP_PERCENT_STEP,
+  normalizeSessionScrollStepPercent,
+} from '../../domain/sessionScrollSettings'
+import {
   COMPOSER_MIN_ROWS_MAX,
   COMPOSER_MIN_ROWS_MIN,
   COMPOSER_RADIUS_MAX,
@@ -291,6 +297,13 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
   const workProcessDisplayMode = normalizeWorkProcessDisplayMode((settings as any)?.workProcessDisplayMode)
   const messageOffscreenSkipEnabled = normalizeMessageOffscreenSkipEnabled(settings?.messageOffscreenSkipEnabled)
   const sessionKeepAliveLimit = normalizeSessionKeepAliveLimit((settings as any)?.sessionKeepAliveLimit)
+  // 会话翻页步长：滑块每动一下即时生效，松手才落盘。
+  const sessionScrollStepPercent = normalizeSessionScrollStepPercent((settings as any)?.sessionScrollStepPercent)
+  const sessionScrollStepDraft = useNumberDraft(
+    sessionScrollStepPercent,
+    normalizeSessionScrollStepPercent,
+    (next) => controller.actions.setSessionScrollStepPercent?.(next, true),
+  )
   const branchTree = normalizeBranchTreeSettings((settings as any)?.branchTree)
   const branchTreeView = branchTree.view
   const branchTreeFollowSelected = branchTree.followSelected
@@ -473,6 +486,36 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
                 </FormControl>
               </Stack>
             </Box>
+          </Stack>
+        </SettingsSection>
+
+        <SettingsSection>
+          <Stack spacing={1.25}>
+            <Box>
+              <Typography sx={{ fontWeight: 900 }}>会话翻页</Typography>
+              <Typography variant="caption" color="text.secondary">
+                Ctrl + PageUp / PageDown 翻动会话消息时，一次走过可视高度的多少。
+                Ctrl + Home / End 不受影响，仍然一步到顶或到底。
+              </Typography>
+            </Box>
+
+            <ChatTextMetricRow
+              label="翻页步长"
+              unit="%"
+              min={SESSION_SCROLL_STEP_PERCENT_MIN}
+              max={SESSION_SCROLL_STEP_PERCENT_MAX}
+              step={SESSION_SCROLL_STEP_PERCENT_STEP}
+              value={sessionScrollStepPercent}
+              draft={sessionScrollStepDraft.draft}
+              disabled={loading}
+              onDraftChange={sessionScrollStepDraft.setDraft}
+              onCommitDraft={sessionScrollStepDraft.commitDraft}
+              onValueChange={(v, commit) => controller.actions.setSessionScrollStepPercent?.(v, commit)}
+            />
+
+            <Typography variant="caption" color="text.secondary">
+              原生键盘翻页是 87.5%。调小一点，一次翻得少些，上下文承接更从容。
+            </Typography>
           </Stack>
         </SettingsSection>
 

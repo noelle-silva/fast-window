@@ -30,6 +30,7 @@ import { normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from '
 import { normalizeWorkProcessDisplayEnabled, normalizeWorkProcessDisplayMode } from './workProcessDisplay'
 import { normalizeMessageOffscreenSkipEnabled } from './messageOffscreen'
 import { normalizeSessionKeepAliveLimit } from './sessionKeepAlive'
+import { normalizeSessionScrollStepPercent } from './sessionScrollSettings'
 import { isTransparentChatBg, normalizeWallpaperSettings } from './wallpaper'
 import { normalizeBranchTreeSettings } from './branchTree'
 import {
@@ -202,6 +203,9 @@ export function normalizeData(raw: any) {
   ;(d.settings as any).chatFontFamily = normalizeChatFontFamily((d.settings as any).chatFontFamily)
   ;(d.settings as any).chatLetterSpacing = normalizeChatLetterSpacing((d.settings as any).chatLetterSpacing)
   ;(d.settings as any).chatLineHeight = normalizeChatLineHeight((d.settings as any).chatLineHeight)
+  ;(d.settings as any).sessionScrollStepPercent = normalizeSessionScrollStepPercent(
+    (d.settings as any).sessionScrollStepPercent,
+  )
   ;(d.settings as any)[COLOR_THEME_SETTING_KEY] = normalizeColorThemeSettings((d.settings as any)[COLOR_THEME_SETTING_KEY])
   ;(d.settings as any).branchTree = normalizeBranchTreeSettings((d.settings as any).branchTree)
   migrateSidebarLayout(d.settings)

@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
-  SESSION_SCROLL_PAGE_STEP_RATIO,
-  applySessionScrollIntent,
   canSessionScroll,
   resolveSessionScrollIntent,
   resolveSessionScrollTop,
 } from './sessionScrollNav'
+
+// 测试用比例：取原生手感（87.5%）作为基准，另有一组用 80% 验证可调。
+const STEP = 0.875
 
 function keyEvent(init: Record<string, any>) {
   return { key: '', ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, ...init }
@@ -16,19 +17,6 @@ function scrollBox(init?: { scrollTop?: number; clientHeight?: number; scrollHei
     scrollTop: init?.scrollTop ?? 0,
     clientHeight: init?.clientHeight ?? 800,
     scrollHeight: init?.scrollHeight ?? 4000,
-  }
-}
-
-function scrollSurface(init?: { scrollTop?: number; clientHeight?: number; scrollHeight?: number }) {
-  const calls: Array<{ top: number; behavior?: ScrollBehavior }> = []
-  return {
-    scrollTop: init?.scrollTop ?? 0,
-    clientHeight: init?.clientHeight ?? 800,
-    scrollHeight: init?.scrollHeight ?? 4000,
-    calls,
-    scrollTo(options: { top: number; behavior?: ScrollBehavior }) {
-      calls.push(options)
-    },
   }
 }
 
@@ -78,51 +66,47 @@ describe('容器够不够滚', () => {
 })
 
 describe('滚动意图的落点', () => {
-  it('往下翻一屏：按可视高度打八七五折，留出重叠', () => {
-    expect(resolveSessionScrollTop(scrollBox({ scrollTop: 500 }), 'page-down')).toBe(
-      500 + 800 * SESSION_SCROLL_PAGE_STEP_RATIO,
-    )
+  it('往下翻一屏：按传入的比例算，留出重叠', () => {
+    expect(resolveSessionScrollTop(scrollBox({ scrollTop: 500 }), 'page-down', STEP)).toBe(500 + 800 * STEP)
   })
 
   it('往上翻一屏：顶到头就停在 0', () => {
-    expect(resolveSessionScrollTop(scrollBox({ scrollTop: 300 }), 'page-up')).toBe(0)
-    expect(resolveSessionScrollTop(scrollBox({ scrollTop: 2000 }), 'page-up')).toBe(
-      2000 - 800 * SESSION_SCROLL_PAGE_STEP_RATIO,
-    )
+    expect(resolveSessionScrollTop(scrollBox({ scrollTop: 300 }), 'page-up', STEP)).toBe(0)
+    expect(resolveSessionScrollTop(scrollBox({ scrollTop: 2000 }), 'page-up', STEP)).toBe(2000 - 800 * STEP)
   })
 
   it('往下翻一屏：底到头就停在最大值', () => {
-    expect(resolveSessionScrollTop(scrollBox({ scrollTop: 3000 }), 'page-down')).toBe(3200)
+    expect(resolveSessionScrollTop(scrollBox({ scrollTop: 3000 }), 'page-down', STEP)).toBe(3200)
   })
 
   it('首尾两端各就各位', () => {
-    expect(resolveSessionScrollTop(scrollBox({ scrollTop: 1200 }), 'top')).toBe(0)
-    expect(resolveSessionScrollTop(scrollBox({ scrollTop: 1200 }), 'bottom')).toBe(3200)
+    expect(resolveSessionScrollTop(scrollBox({ scrollTop: 1200 }), 'top', STEP)).toBe(0)
+    expect(resolveSessionScrollTop(scrollBox({ scrollTop: 1200 }), 'bottom', STEP)).toBe(3200)
   })
 
   it('内容不满一屏时，任何意图都落在 0，不会写出负数或越界值', () => {
     const narrow = () => scrollBox({ scrollTop: 0, scrollHeight: 600 })
-    expect(resolveSessionScrollTop(narrow(), 'page-down')).toBe(0)
-    expect(resolveSessionScrollTop(narrow(), 'bottom')).toBe(0)
-    expect(resolveSessionScrollTop(narrow(), 'page-up')).toBe(0)
+    expect(resolveSessionScrollTop(narrow(), 'page-down', STEP)).toBe(0)
+    expect(resolveSessionScrollTop(narrow(), 'bottom', STEP)).toBe(0)
+    expect(resolveSessionScrollTop(narrow(), 'page-up', STEP)).toBe(0)
+  })
+
+  it('起点由调用方给：连按时用上一次的目标继续累加', () => {
+    // 动画跑到一半，实际位置只有 400，但目标已经是 700；第二下应该从 700 继续。
+    expect(resolveSessionScrollTop(scrollBox({ scrollTop: 700 }), 'page-down', STEP)).toBe(700 + 800 * STEP)
   })
 })
 
-describe('落点交给平滑滚动', () => {
-  it('走平滑通道，目标位置与算出来的一致', () => {
-    const el = scrollSurface({ scrollTop: 1000 })
-    applySessionScrollIntent(el, 'page-down')
-    expect(el.calls).toEqual([{ top: 1700, behavior: 'smooth' }])
+describe('步长可调', () => {
+  it('比例越小，一屏翻得越少', () => {
+    const el = scrollBox({ scrollTop: 1000 })
+    expect(resolveSessionScrollTop(el, 'page-down', 0.8)).toBe(1640)
+    expect(resolveSessionScrollTop(el, 'page-down', 0.6)).toBe(1480)
   })
 
-  it('四种意图都不直接写位置，一律经过滚动动画', () => {
-    const el = scrollSurface({ scrollTop: 1200 })
-    applySessionScrollIntent(el, 'top')
-    applySessionScrollIntent(el, 'bottom')
-    expect(el.calls).toEqual([
-      { top: 0, behavior: 'smooth' },
-      { top: 3200, behavior: 'smooth' },
-    ])
-    expect(el.scrollTop).toBe(1200)
+  it('首尾两端不受步长影响', () => {
+    const el = scrollBox({ scrollTop: 1200 })
+    expect(resolveSessionScrollTop(el, 'top', 0.5)).toBe(0)
+    expect(resolveSessionScrollTop(el, 'bottom', 1)).toBe(3200)
   })
 })

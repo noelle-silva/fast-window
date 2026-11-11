@@ -4,9 +4,8 @@
 
 export type SessionScrollIntent = 'page-up' | 'page-down' | 'top' | 'bottom'
 
-// 翻页留一点重叠，和原生 PageUp / PageDown 的手感对齐：
-// 一屏取 87.5%，上一屏末尾那几行在下一屏还看得见。
-export const SESSION_SCROLL_PAGE_STEP_RATIO = 0.875
+// 翻页比例不写死在这里：默认值与取值范围归 domain/sessionScrollSettings.ts，
+// 由设置页调整后按参数传进来。
 
 type SessionScrollKeyEvent = {
   key?: string
@@ -43,31 +42,27 @@ export function canSessionScroll(el: { scrollHeight: number; clientHeight: numbe
   return el.scrollHeight - el.clientHeight > 1
 }
 
-type SessionScrollSurface = {
+export type SessionScrollGeometry = {
   scrollTop: number
   clientHeight: number
   scrollHeight: number
-  scrollTo: (options: { top: number; behavior?: ScrollBehavior }) => void
 }
 
 // 意图 → 目标位置。上下界在这里夹死，纯算术，不碰 DOM。
+// pageStepRatio 由设置页决定（占可视高度的比例），这个模块不持有默认值。
+// scrollTop 由调用方给：连按翻页时要传「上一次的目标」，让目标一路累加，动画不重启。
 export function resolveSessionScrollTop(
-  el: Pick<SessionScrollSurface, 'scrollTop' | 'clientHeight' | 'scrollHeight'>,
+  el: SessionScrollGeometry,
   intent: SessionScrollIntent,
+  pageStepRatio: number,
 ): number {
   const maxScrollTop = Math.max(0, el.scrollHeight - el.clientHeight)
 
   if (intent === 'top') return 0
   if (intent === 'bottom') return maxScrollTop
 
-  const step = el.clientHeight * SESSION_SCROLL_PAGE_STEP_RATIO
+  const step = el.clientHeight * pageStepRatio
   const next = intent === 'page-up' ? el.scrollTop - step : el.scrollTop + step
   return Math.min(maxScrollTop, Math.max(0, next))
 }
 
-// 落点交给平滑滚动，而不是直接写位置：
-// 原生这几个键走的就是滚动动画，直接赋值会变成瞬移，看着像页面被硬拽了一下。
-// 交给浏览器同一条滚动动画通道，翻页的「过程感」才和原生一致。
-export function applySessionScrollIntent(el: SessionScrollSurface, intent: SessionScrollIntent): void {
-  el.scrollTo({ top: resolveSessionScrollTop(el, intent), behavior: 'smooth' })
-}

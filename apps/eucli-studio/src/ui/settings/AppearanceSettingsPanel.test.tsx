@@ -148,3 +148,80 @@ describe('外观设置消息屏外跳过', () => {
     expect(host!.querySelector('#fw-work-process-display-mode')?.closest('.Mui-disabled')).toBeFalsy()
   })
 })
+
+describe('外观设置会话翻页步长', () => {
+  let host: HTMLDivElement | null = null
+  let root: any = null
+
+  beforeEach(() => {
+    host = document.createElement('div')
+    document.body.appendChild(host)
+    root = createRoot(host)
+  })
+
+  afterEach(async () => {
+    if (root) {
+      await act(async () => {
+        root.unmount()
+      })
+      root = null
+    }
+    host?.remove()
+    host = null
+  })
+
+  function renderPanel(settings: Record<string, any>, actions: Record<string, any>) {
+    return (
+      <AppearanceSettingsPanel
+        controller={{ actions, capabilities: {} }}
+        loading={false}
+        data={{ settings }}
+        draft={{}}
+      />
+    )
+  }
+
+  function stepInput() {
+    const label = Array.from(host!.querySelectorAll('p')).find((node) => node.textContent === '翻页步长')
+    if (!label) throw new Error('翻页步长 not found')
+    let node: HTMLElement | null = label
+    while (node && !node.querySelector('input[type="number"]')) node = node.parentElement
+    const input = node?.querySelector('input[type="number"]')
+    if (!input) throw new Error('翻页步长输入框 not found')
+    return input as HTMLInputElement
+  }
+
+  function typeAndCommit(next: string) {
+    const input = stepInput()
+    const setValue = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!
+    act(() => {
+      input.focus()
+      setValue.call(input, next)
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      input.blur()
+    })
+  }
+
+  it('没存过设置时按默认值显示', async () => {
+    await act(async () => {
+      root.render(renderPanel({}, {}))
+    })
+    expect(stepInput().value).toBe('80')
+  })
+
+  it('改数字并失焦后回传动作，且按新值显示', async () => {
+    const setSessionScrollStepPercent = vi.fn()
+
+    await act(async () => {
+      root.render(renderPanel({}, { setSessionScrollStepPercent }))
+    })
+    typeAndCommit('60')
+
+    expect(setSessionScrollStepPercent).toHaveBeenCalledWith(60, true)
+
+    await act(async () => {
+      root.render(renderPanel({ sessionScrollStepPercent: 60 }, { setSessionScrollStepPercent }))
+    })
+    expect(stepInput().value).toBe('60')
+  })
+})

@@ -60,6 +60,7 @@ import { normalizeMessageOffscreenSkipEnabled } from '../domain/messageOffscreen
 import { normalizeSessionKeepAliveLimit } from '../domain/sessionKeepAlive'
 import { normalizeChatFontFamily, normalizeChatFontSize, normalizeChatLetterSpacing, normalizeChatLineHeight } from '../domain/chatFont'
 import { normalizeComposerMinRows, normalizeComposerModelShowProvider, normalizeComposerRadius, normalizeComposerWidthPercent } from '../domain/composerAppearance'
+import { normalizeSessionScrollStepPercent } from '../domain/sessionScrollSettings'
 import { normalizeComposerToolsLayout } from '../domain/composerToolsLayout'
 import {
   normalizeChatBgBlur,
@@ -91,7 +92,8 @@ import { parseWorkspaceRoleTargetId, workspaceRoleTargetId } from '../domain/wor
 import { sessionRefScopes } from '../domain/sessionRefScope'
 import { useSidebarNavigation } from './hooks/useSidebarNavigation'
 import { useSessionScrollNav } from './hooks/useSessionScrollNav'
-import { applySessionScrollIntent, type SessionScrollIntent } from './scroll/sessionScrollNav'
+import { resolveSessionScrollTop, type SessionScrollIntent } from './scroll/sessionScrollNav'
+import { createSessionScrollAnimator } from './scroll/sessionScrollAnimation'
 import { createStudioMuiTheme } from './colorThemeStyles'
 import { ChatTreeModal } from './chatTree/ChatTreeModal'
 import { ShellFrame } from './surfaces/ShellFrame'
@@ -164,6 +166,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const composerWidthPercent = normalizeComposerWidthPercent(data?.settings?.composerWidthPercent)
   const composerMinRows = normalizeComposerMinRows(data?.settings?.composerMinRows)
   const composerRadius = normalizeComposerRadius(data?.settings?.composerRadius)
+  // 会话翻页步长：设置页里可调，换算成比例后交给滚动动作。
+  const sessionScrollStepRatio = normalizeSessionScrollStepPercent((data?.settings as any)?.sessionScrollStepPercent) / 100
   const composerModelShowProvider = normalizeComposerModelShowProvider(data?.settings?.composerModelShowProvider)
   // 按钮布局按字段引用 + 设置版本双保险失效：设置对象可能被原地改写，引用未必变化。
   const composerToolsLayoutSource = (data?.settings as any)?.composerToolsLayout
@@ -955,17 +959,34 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
 
   // 键盘翻页：Ctrl + PageUp / PageDown / Home / End 一律滚当前可见的会话，
   // 光标停在草稿框里也照样生效——这组键是「看消息」的，不该被输入框截走。
+  // 推进器自己管动画：目标可以边跑边改，连按不会重新起步。
+  const sessionScrollAnimator = React.useMemo(() => createSessionScrollAnimator(), [])
+  React.useEffect(() => () => sessionScrollAnimator.cancel(), [sessionScrollAnimator])
+  // 切会话立刻收住：别让上一页还在跑的滚动追到新页面上。
+  React.useEffect(() => {
+    sessionScrollAnimator.cancel()
+  }, [sessionScrollAnimator, sessionPageKey])
+
   const onSessionScrollIntent = useEvent((intent: SessionScrollIntent, el: HTMLElement) => {
     // 已经排队的跟底帧先撤掉：这一下是用户自己在换视野，别在动画途中被拽回底部。
     if (stickFrameRef.current) {
       cancelAnimationFrame(stickFrameRef.current)
       stickFrameRef.current = 0
     }
-    // 滚动是动画，读完位置会滞后；先把「要不要继续追新」定下来，
-    // 动画途中的实际位置再由滚动事件一路校正。
+    // 滚动到哪由动画决定；动画途中的实际位置由滚动事件一路校正。
     // PageDown 单独看：原本就贴着底部时它不产生位移，保持跟随才对。
     stickToBottomRef.current = intent === 'bottom' || (intent === 'page-down' && isNearBottom(el))
-    applySessionScrollIntent(el, intent)
+    // 连按时从「上一次的目标」继续累加，而不是从滚动中的当前位置起算：
+    // 目标一路往前推，推进器就不用重启动画，手感才连贯。
+    const base = sessionScrollAnimator.target() ?? el.scrollTop
+    sessionScrollAnimator.moveTo(
+      el,
+      resolveSessionScrollTop(
+        { scrollTop: base, clientHeight: el.clientHeight, scrollHeight: el.scrollHeight },
+        intent,
+        sessionScrollStepRatio,
+      ),
+    )
   })
   useSessionScrollNav({
     enabled: page === 'chat' && pageVisible && !s.modal,

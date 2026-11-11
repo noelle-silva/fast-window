@@ -32,6 +32,7 @@ import { normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from '
 import { normalizeWorkProcessDisplayEnabled, normalizeWorkProcessDisplayMode } from '../../domain/workProcessDisplay'
 import { normalizeMessageOffscreenSkipEnabled } from '../../domain/messageOffscreen'
 import { normalizeSessionKeepAliveLimit } from '../../domain/sessionKeepAlive'
+import { normalizeSessionScrollStepPercent } from '../../domain/sessionScrollSettings'
 import {
   applySidebarSide,
   applySidebarTabsVariant,
@@ -401,6 +402,12 @@ export function createAppearanceActions(deps: {
       if (!state.data) return
       ;(state.data.settings as any).sessionKeepAliveLimit = normalizeSessionKeepAliveLimit(limit)
       persistMeta()
+      notifySettings()
+    },
+    setSessionScrollStepPercent: (percent: any, commit: any) => {
+      if (!state.data) return
+      state.data.settings.sessionScrollStepPercent = normalizeSessionScrollStepPercent(percent)
+      if (commit) persistMeta()
       notifySettings()
     },
     // 侧边栏布局是两个身份 A / B 各一份：侧别互斥（改一侧，另一侧翻到对侧），宽度独立。
