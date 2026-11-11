@@ -27,7 +27,12 @@ import { normalizeRoleToolPolicy } from './toolPolicy'
 import { normalizeRoleModelConfig } from './roleModelCandidates'
 import { normalizeReasoningEffort, normalizeReasoningFields } from './reasoning'
 import { normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from './reasoningDisplay'
-import { normalizeWorkProcessDisplayEnabled, normalizeWorkProcessDisplayMode } from './workProcessDisplay'
+import {
+  normalizeWorkProcessDisplayEnabled,
+  normalizeWorkProcessDisplayMode,
+  normalizeWorkProcessInnerScrollEnabled,
+  normalizeWorkProcessInnerScrollHeight,
+} from './workProcessDisplay'
 import { normalizeMessageOffscreenSkipEnabled } from './messageOffscreen'
 import { normalizeSessionKeepAliveLimit } from './sessionKeepAlive'
 import { normalizeSessionScrollStepPercent } from './sessionScrollSettings'
@@ -216,6 +221,8 @@ export function normalizeData(raw: any) {
   ;(d.settings as any).reasoningRenderEnabled = normalizeReasoningRenderEnabled((d.settings as any).reasoningRenderEnabled)
   ;(d.settings as any).workProcessDisplayEnabled = normalizeWorkProcessDisplayEnabled((d.settings as any).workProcessDisplayEnabled)
   ;(d.settings as any).workProcessDisplayMode = normalizeWorkProcessDisplayMode((d.settings as any).workProcessDisplayMode)
+  ;(d.settings as any).workProcessInnerScrollEnabled = normalizeWorkProcessInnerScrollEnabled((d.settings as any).workProcessInnerScrollEnabled)
+  ;(d.settings as any).workProcessInnerScrollHeight = normalizeWorkProcessInnerScrollHeight((d.settings as any).workProcessInnerScrollHeight)
   ;(d.settings as any).messageOffscreenSkipEnabled = normalizeMessageOffscreenSkipEnabled((d.settings as any).messageOffscreenSkipEnabled)
   ;(d.settings as any).sessionKeepAliveLimit = normalizeSessionKeepAliveLimit((d.settings as any).sessionKeepAliveLimit)
   ;(d.settings as any).wallpaper = normalizeWallpaperSettings((d.settings as any).wallpaper)

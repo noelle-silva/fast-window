@@ -13,6 +13,7 @@ import type { MessageOffscreenHandle } from '../hooks/useMessageOffscreen'
 import { buildChatListIndex } from './ChatListIndex'
 import { MessageRow, type MessageRowActions, type MessageRowUiPolicy } from './MessageRow'
 import { MessageOffscreenSlot } from './MessageOffscreenSlot'
+import { CustomScrollArea } from './CustomScrollArea'
 import { useRenderProbe } from '../../diagnostics/renderProbe'
 
 type MessageRole = 'user' | 'assistant'
@@ -52,6 +53,9 @@ type ChatMessageListProps = {
   // 工作过程缩略显示：开关决定是否渲染统计块，档位决定默认展开状态。
   workProcessDisplayEnabled: boolean
   workProcessDisplayMode: WorkProcessDisplayMode
+  // 展开内容内部滚动：开启后按高度上限滚动，不把整页撑长。
+  workProcessInnerScrollEnabled: boolean
+  workProcessInnerScrollHeight: number
   stickersEnabled: boolean
   stickerMap: any
   renderSafetyPolicyKey: string
@@ -113,6 +117,8 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
     reasoningRenderEnabled,
     workProcessDisplayEnabled,
     workProcessDisplayMode,
+    workProcessInnerScrollEnabled,
+    workProcessInnerScrollHeight,
     stickersEnabled,
     stickerMap,
     renderSafetyPolicyKey,
@@ -332,10 +338,25 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
         >
           {toolProcessBar('start', range, expanded, active, onToggle)}
           <Collapse in={expanded} timeout={180} unmountOnExit>
-            <Stack spacing={1.25} sx={{ pt: 1.25 }}>
-              {revealedFlow.slice(range.start, range.end + 1).map(renderRow)}
-              {toolProcessBar('end', range, expanded, active, onToggle)}
-            </Stack>
+            {workProcessInnerScrollEnabled ? (
+              <Box>
+                <CustomScrollArea
+                  axis="y"
+                  hostSx={{ maxHeight: workProcessInnerScrollHeight }}
+                  scrollSx={{ maxHeight: workProcessInnerScrollHeight, pr: 1 }}
+                >
+                  <Stack spacing={1.25} sx={{ pt: 1.25 }}>
+                    {revealedFlow.slice(range.start, range.end + 1).map(renderRow)}
+                  </Stack>
+                </CustomScrollArea>
+                {toolProcessBar('end', range, expanded, active, onToggle)}
+              </Box>
+            ) : (
+              <Stack spacing={1.25} sx={{ pt: 1.25 }}>
+                {revealedFlow.slice(range.start, range.end + 1).map(renderRow)}
+                {toolProcessBar('end', range, expanded, active, onToggle)}
+              </Stack>
+            )}
           </Collapse>
         </Box>,
       )
@@ -343,7 +364,7 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
     }
     for (let index = cursor; index < revealedFlow.length; index++) rows.push(renderRow(revealedFlow[index]))
     return rows
-  }, [revealedFlow, renderRow, manualExpanded, toggleToolProcess, workProcessDisplayEnabled, workProcessDisplayMode])
+  }, [revealedFlow, renderRow, manualExpanded, toggleToolProcess, workProcessDisplayEnabled, workProcessDisplayMode, workProcessInnerScrollEnabled, workProcessInnerScrollHeight])
 
   return (
     <Stack spacing={1.25} useFlexGap sx={{ position: 'relative' }}>

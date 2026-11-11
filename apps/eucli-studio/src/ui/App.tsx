@@ -55,7 +55,12 @@ import { chatSettingsTargetKey } from '../controller/chatSessionTarget'
 import { selectChatLoadFailure } from '../controller/chatLoadFailure'
 import { chatReasoningEffort, effectiveReasoningEffort, modelReasoningProfileFromModelRef, reasoningEffortLabel } from '../domain/reasoning'
 import { normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from '../domain/reasoningDisplay'
-import { normalizeWorkProcessDisplayEnabled, normalizeWorkProcessDisplayMode } from '../domain/workProcessDisplay'
+import {
+  normalizeWorkProcessDisplayEnabled,
+  normalizeWorkProcessDisplayMode,
+  normalizeWorkProcessInnerScrollEnabled,
+  normalizeWorkProcessInnerScrollHeight,
+} from '../domain/workProcessDisplay'
 import { normalizeMessageOffscreenSkipEnabled } from '../domain/messageOffscreen'
 import { normalizeSessionKeepAliveLimit } from '../domain/sessionKeepAlive'
 import { normalizeChatFontFamily, normalizeChatFontSize, normalizeChatLetterSpacing, normalizeChatLineHeight } from '../domain/chatFont'
@@ -189,6 +194,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const reasoningRenderEnabled = normalizeReasoningRenderEnabled(data?.settings?.reasoningRenderEnabled)
   const workProcessDisplayEnabled = normalizeWorkProcessDisplayEnabled(data?.settings?.workProcessDisplayEnabled)
   const workProcessDisplayMode = normalizeWorkProcessDisplayMode(data?.settings?.workProcessDisplayMode)
+  const workProcessInnerScrollEnabled = normalizeWorkProcessInnerScrollEnabled(data?.settings?.workProcessInnerScrollEnabled)
+  const workProcessInnerScrollHeight = normalizeWorkProcessInnerScrollHeight(data?.settings?.workProcessInnerScrollHeight)
   const messageOffscreenSkipEnabled = normalizeMessageOffscreenSkipEnabled(data?.settings?.messageOffscreenSkipEnabled)
   const sessionKeepAliveLimit = normalizeSessionKeepAliveLimit((data?.settings as any)?.sessionKeepAliveLimit)
   const stickersEnabled = !!data?.settings?.stickers?.enabled
@@ -781,6 +788,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     reasoningRenderEnabled ? 1 : 0,
     workProcessDisplayEnabled ? 1 : 0,
     workProcessDisplayMode,
+    workProcessInnerScrollEnabled ? workProcessInnerScrollHeight : 0,
     renderSafetyPolicy,
     stickersEnabled ? `stickers:${Object.keys(stickerMap || {}).length}` : 'stickers:off',
     treeOpen && effectiveTreeView === 'right' ? `tree:${Math.round(treePanelW)}` : 'tree:off',
@@ -1696,6 +1704,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     reasoningRenderEnabled,
     workProcessDisplayEnabled,
     workProcessDisplayMode,
+    workProcessInnerScrollEnabled,
+    workProcessInnerScrollHeight,
     stickersEnabled,
     stickerMap,
     renderSafetyPolicyKey: renderSafetyPolicy,
@@ -1732,6 +1742,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     reasoningRenderEnabled,
     workProcessDisplayEnabled,
     workProcessDisplayMode,
+    workProcessInnerScrollEnabled,
+    workProcessInnerScrollHeight,
     stickersEnabled,
     stickerMap,
     renderSafetyPolicy,

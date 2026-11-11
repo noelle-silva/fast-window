@@ -3,6 +3,8 @@ import {
   DEFAULT_WORK_PROCESS_DISPLAY_MODE,
   normalizeWorkProcessDisplayEnabled,
   normalizeWorkProcessDisplayMode,
+  normalizeWorkProcessInnerScrollEnabled,
+  normalizeWorkProcessInnerScrollHeight,
   workProcessExpandedByMode,
 } from './workProcessDisplay'
 
@@ -30,5 +32,14 @@ describe('工作过程显示设置', () => {
     expect(workProcessExpandedByMode('collapse-when-done', false)).toBe(false)
     expect(workProcessExpandedByMode('stay-expanded', true)).toBe(true)
     expect(workProcessExpandedByMode('stay-expanded', false)).toBe(true)
+  })
+
+  it('内部滚动默认关闭，高度收敛在允许区间', () => {
+    expect(normalizeWorkProcessInnerScrollEnabled(undefined)).toBe(false)
+    expect(normalizeWorkProcessInnerScrollEnabled(true)).toBe(true)
+    expect(normalizeWorkProcessInnerScrollHeight(undefined)).toBe(480)
+    expect(normalizeWorkProcessInnerScrollHeight(100)).toBe(200)
+    expect(normalizeWorkProcessInnerScrollHeight(5000)).toBe(1200)
+    expect(normalizeWorkProcessInnerScrollHeight(640)).toBe(640)
   })
 })

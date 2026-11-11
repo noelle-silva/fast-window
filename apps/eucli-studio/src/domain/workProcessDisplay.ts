@@ -32,3 +32,23 @@ export function workProcessExpandedByMode(mode: WorkProcessDisplayMode, active: 
   if (mode === 'stay-expanded') return true
   return active
 }
+
+// 展开内容内部滚动：默认关闭，开启后这一段在固定高度内滚动，不把整页撑长。
+export const DEFAULT_WORK_PROCESS_INNER_SCROLL_ENABLED = false
+export const WORK_PROCESS_INNER_SCROLL_HEIGHT_MIN = 200
+export const WORK_PROCESS_INNER_SCROLL_HEIGHT_MAX = 1200
+export const DEFAULT_WORK_PROCESS_INNER_SCROLL_HEIGHT = 480
+export const WORK_PROCESS_INNER_SCROLL_HEIGHT_STEP = 20
+
+export function normalizeWorkProcessInnerScrollEnabled(raw: unknown): boolean {
+  return raw === true || String(raw ?? '').trim() === 'true'
+}
+
+export function normalizeWorkProcessInnerScrollHeight(raw: unknown): number {
+  const value = Math.round(Number(raw))
+  if (!Number.isFinite(value)) return DEFAULT_WORK_PROCESS_INNER_SCROLL_HEIGHT
+  return Math.min(
+    WORK_PROCESS_INNER_SCROLL_HEIGHT_MAX,
+    Math.max(WORK_PROCESS_INNER_SCROLL_HEIGHT_MIN, value),
+  )
+}

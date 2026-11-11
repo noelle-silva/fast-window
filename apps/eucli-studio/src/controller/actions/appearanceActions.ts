@@ -29,7 +29,12 @@ import {
 } from '../../domain/branchTree'
 import { normalizeSettingsNavOrder } from '../../domain/settingsNavigation'
 import { normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from '../../domain/reasoningDisplay'
-import { normalizeWorkProcessDisplayEnabled, normalizeWorkProcessDisplayMode } from '../../domain/workProcessDisplay'
+import {
+  normalizeWorkProcessDisplayEnabled,
+  normalizeWorkProcessDisplayMode,
+  normalizeWorkProcessInnerScrollEnabled,
+  normalizeWorkProcessInnerScrollHeight,
+} from '../../domain/workProcessDisplay'
 import { normalizeMessageOffscreenSkipEnabled } from '../../domain/messageOffscreen'
 import { normalizeSessionKeepAliveLimit } from '../../domain/sessionKeepAlive'
 import { normalizeSessionScrollStepPercent } from '../../domain/sessionScrollSettings'
@@ -389,6 +394,18 @@ export function createAppearanceActions(deps: {
       if (!state.data) return
       ;(state.data.settings as any).workProcessDisplayMode = normalizeWorkProcessDisplayMode(mode)
       persistMeta()
+      notifySettings()
+    },
+    setWorkProcessInnerScrollEnabled: (enabled: any) => {
+      if (!state.data) return
+      ;(state.data.settings as any).workProcessInnerScrollEnabled = normalizeWorkProcessInnerScrollEnabled(enabled)
+      persistMeta()
+      notifySettings()
+    },
+    setWorkProcessInnerScrollHeight: (height: any, commit: any) => {
+      if (!state.data) return
+      ;(state.data.settings as any).workProcessInnerScrollHeight = normalizeWorkProcessInnerScrollHeight(height)
+      if (commit) persistMeta()
       notifySettings()
     },
     setMessageOffscreenSkipEnabled: (enabled: any) => {

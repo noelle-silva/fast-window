@@ -20,8 +20,13 @@ import {
 import { REASONING_DISPLAY_MODE_OPTIONS, normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from '../../domain/reasoningDisplay'
 import {
   WORK_PROCESS_DISPLAY_MODE_OPTIONS,
+  WORK_PROCESS_INNER_SCROLL_HEIGHT_MAX,
+  WORK_PROCESS_INNER_SCROLL_HEIGHT_MIN,
+  WORK_PROCESS_INNER_SCROLL_HEIGHT_STEP,
   normalizeWorkProcessDisplayEnabled,
   normalizeWorkProcessDisplayMode,
+  normalizeWorkProcessInnerScrollEnabled,
+  normalizeWorkProcessInnerScrollHeight,
 } from '../../domain/workProcessDisplay'
 import { normalizeMessageOffscreenSkipEnabled } from '../../domain/messageOffscreen'
 import {
@@ -295,6 +300,13 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
   const reasoningRenderEnabled = normalizeReasoningRenderEnabled(settings?.reasoningRenderEnabled)
   const workProcessDisplayEnabled = normalizeWorkProcessDisplayEnabled((settings as any)?.workProcessDisplayEnabled)
   const workProcessDisplayMode = normalizeWorkProcessDisplayMode((settings as any)?.workProcessDisplayMode)
+  const workProcessInnerScrollEnabled = normalizeWorkProcessInnerScrollEnabled((settings as any)?.workProcessInnerScrollEnabled)
+  const workProcessInnerScrollHeight = normalizeWorkProcessInnerScrollHeight((settings as any)?.workProcessInnerScrollHeight)
+  const workProcessInnerScrollHeightDraft = useNumberDraft(
+    workProcessInnerScrollHeight,
+    normalizeWorkProcessInnerScrollHeight,
+    (next) => controller.actions.setWorkProcessInnerScrollHeight?.(next, true),
+  )
   const messageOffscreenSkipEnabled = normalizeMessageOffscreenSkipEnabled(settings?.messageOffscreenSkipEnabled)
   const sessionKeepAliveLimit = normalizeSessionKeepAliveLimit((settings as any)?.sessionKeepAliveLimit)
   // 会话翻页步长：滑块每动一下即时生效，松手才落盘。
@@ -903,6 +915,39 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
                 </Select>
               </FormControl>
             </Stack>
+
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Box sx={{ minWidth: 0, flex: 1 }}>
+                <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                  展开时内部滚动
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  开启后，展开的工具过程在限定高度内滚动，不把整页撑长。
+                </Typography>
+              </Box>
+              <Switch
+                size="small"
+                checked={workProcessInnerScrollEnabled}
+                onChange={(e) => controller.actions.setWorkProcessInnerScrollEnabled?.(!!e.target.checked)}
+                disabled={loading || !workProcessDisplayEnabled}
+              />
+            </Stack>
+
+            {workProcessInnerScrollEnabled ? (
+              <ChatTextMetricRow
+                label="展开高度"
+                unit="px"
+                min={WORK_PROCESS_INNER_SCROLL_HEIGHT_MIN}
+                max={WORK_PROCESS_INNER_SCROLL_HEIGHT_MAX}
+                step={WORK_PROCESS_INNER_SCROLL_HEIGHT_STEP}
+                value={workProcessInnerScrollHeight}
+                draft={workProcessInnerScrollHeightDraft.draft}
+                disabled={loading}
+                onDraftChange={workProcessInnerScrollHeightDraft.setDraft}
+                onCommitDraft={workProcessInnerScrollHeightDraft.commitDraft}
+                onValueChange={(value, commit) => controller.actions.setWorkProcessInnerScrollHeight?.(value, commit)}
+              />
+            ) : null}
           </Stack>
         </SettingsSection>
 

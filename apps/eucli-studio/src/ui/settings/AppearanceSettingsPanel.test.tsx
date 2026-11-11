@@ -147,6 +147,13 @@ describe('外观设置消息屏外跳过', () => {
     })
     expect(host!.querySelector('#fw-work-process-display-mode')?.closest('.Mui-disabled')).toBeFalsy()
   })
+
+  it('展开时内部滚动默认关闭', async () => {
+    await act(async () => {
+      root.render(renderPanel({}, {}))
+    })
+    expect(switchForSection(host!, '展开时内部滚动').checked).toBe(false)
+  })
 })
 
 describe('外观设置会话翻页步长', () => {
