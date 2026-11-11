@@ -118,6 +118,7 @@ describe('并发竞态：删除后旧请求不得回填', () => {
           runStatus: 'completed',
           runStatusChangedAt: 300,
           listAnchorAt: 300,
+          contextTokens: 0,
         },
       ],
       updatedAt: 300,

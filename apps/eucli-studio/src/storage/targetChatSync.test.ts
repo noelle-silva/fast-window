@@ -22,6 +22,7 @@ function snapshot(revision: number, ids: string[], activeChatId = ''): ChatIndex
       runStatus: 'idle',
       runStatusChangedAt: 0,
       listAnchorAt: 1000 + index,
+      contextTokens: 0,
     })),
     updatedAt: 5000,
     revision,

@@ -1,6 +1,7 @@
 import { now } from '../core/utils'
 import { chatListItemsOfBox } from './chatListOrdering'
 import { favoriteChatRefKey, normalizeFavoriteChatRef, normalizeFavoriteFolder } from './favorites'
+import { latestContextTokens, normalizeMessageContextTokens } from './message'
 import { SESSION_REF_PENDING_TITLE } from './sessionRefPlaceholder'
 import { sessionRefBox, sessionRefIdentity } from './sessionRefScope'
 import { workspaceIconImageSrc } from './workspaceIcon'
@@ -225,6 +226,8 @@ export type DeskEntry = {
   roleName: string
   avatarImage: string
   roleAvatarImage: string
+  // contextTokens 是这条会话已使用的上下文规模；0 表示上游没有真值，不在展示层估算。
+  contextTokens: number
 }
 
 // 会话事实缺失时的标题兜底，口径与后端 buildSessionIndex 的 fallbackTitle 一致。
@@ -234,9 +237,19 @@ function chatFallbackTitle(kind: DeskTargetKind): string {
   return '新聊天'
 }
 
-function chatItemsOf(data: any, ref: any): any[] {
+function chatBoxOf(data: any, ref: any): any {
   const identity = sessionRefIdentity(ref)
-  return chatListItemsOfBox(identity ? sessionRefBox(data, identity) : null)
+  return identity ? sessionRefBox(data, identity) : null
+}
+
+// 会话已使用的上下文规模沿用既有口径：最后一条带真值的消息（消息行、输入框也读这一份）。
+// 正文已经在内存就按这条正文链算——流式期间它比索引新；正文不在内存时用索引 meta 上
+// 后端按整份会话算好的值。两处都为 0 就是没有真值。
+function deskContextTokensOf(box: any, indexedChat: any, chatId: string): number {
+  const body = (Array.isArray(box?.chats) ? box.chats : []).find((it: any) => String(it?.id || '') === chatId) || null
+  const fromBody = latestContextTokens(body?.messages)
+  if (fromBody > 0) return fromBody
+  return normalizeMessageContextTokens(indexedChat?.contextTokens)
 }
 
 function findRole(data: any, roleId: string): any {
@@ -279,7 +292,8 @@ export function resolveDeskEntries(data: any, desks: SessionDesks | null | undef
   for (const ref of deskFlatRefs(desks)) {
     const key = favoriteChatRefKey(ref.targetKind, ref.targetId, ref.roleId, ref.chatId)
     if (!key) continue
-    const chat = chatItemsOf(data, ref).find((it: any) => String(it?.id || '') === ref.chatId)
+    const box = chatBoxOf(data, ref)
+    const chat = chatListItemsOfBox(box).find((it: any) => String(it?.id || '') === ref.chatId)
     const meta = targetMetaOf(data, ref)
     const status: DeskEntryStatus = chat ? 'loaded' : 'pending'
     out.push({
@@ -298,6 +312,7 @@ export function resolveDeskEntries(data: any, desks: SessionDesks | null | undef
       roleName: meta.roleName,
       avatarImage: meta.avatarImage,
       roleAvatarImage: meta.roleAvatarImage,
+      contextTokens: deskContextTokensOf(box, chat, ref.chatId),
     })
   }
   return out

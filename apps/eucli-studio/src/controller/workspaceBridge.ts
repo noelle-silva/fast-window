@@ -1,4 +1,5 @@
 import { applyLoadedSessionVersion } from '../domain/sessionVersion'
+import { normalizeMessageContextTokens } from '../domain/message'
 import { normalizeStoredChat } from '../storage/normalizeStoredChat'
 import { normalizeWorkspaceIcon, type UiWorkspaceIcon } from '../domain/workspaceIcon'
 import {
@@ -146,6 +147,8 @@ export function workspaceSessionSummaryToMeta(raw: unknown) {
     runStatusChangedAt: updatedAt,
     // 摘要没有消息级事件，锚点只能取最后落盘的活动时间：它是静止快照。
     listAnchorAt: updatedAt,
+    // 工作区会话摘要与角色 / 群聊同一份索引口径：上下文真值原样带上，缺了就是 0。
+    contextTokens: normalizeMessageContextTokens(summary.contextTokens),
   }
 }
 

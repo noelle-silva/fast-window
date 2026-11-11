@@ -244,6 +244,7 @@ export function createSessionFactsBackend() {
           runStatus: 'idle',
           runStatusChangedAt: 0,
           listAnchorAt: session.updatedAt,
+          contextTokens: 0,
         },
       ],
       updatedAt: session.updatedAt,

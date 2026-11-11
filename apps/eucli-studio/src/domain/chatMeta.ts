@@ -2,7 +2,7 @@ import { normalizeTimeMs, now } from '../core/utils'
 import { chatListAnchorForChat, chatListAnchorForIndex } from './chatListAnchor'
 import { chatSessionRunSummaryFromChat, normalizeChatSessionRunStatus, type ChatSessionRunStatus } from './chatSessionRunStatus'
 import { factSourceRank, type FactSource } from './factPrecedence'
-import { CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT } from './message'
+import { CHAT_MESSAGE_TYPE_ASYNC_TOOL_RESULT, latestContextTokens, normalizeMessageContextTokens } from './message'
 import { toolResultStatusText, toolStateText } from './toolCallState'
 
 export type ChatMeta = {
@@ -18,6 +18,9 @@ export type ChatMeta = {
   // listAnchorAt 是侧边栏排序的唯一位置事实：只随「创建 / 用户发消息」推进。
   // 输出、run 起落与工具往返都不参与，所以整轮对话期间位置不动。
   listAnchorAt: number
+  // contextTokens 是这条会话已使用的上下文规模，与消息行、输入框同一口径
+  // （最后一条带真值的消息）。0 表示上游没有真值，不在列表层估算。
+  contextTokens: number
   // partial 表示这份 meta 来自「消息窗口」而不是整份会话：
   // 条数与摘要都是窗口切片的事实，绝不能拿来覆盖索引里的列表事实。
   partial?: boolean
@@ -116,6 +119,7 @@ export function chatMetaFromChat(chat: any, fallbackTitle = '新聊天'): ChatMe
     runStatus: hasPending ? 'running' : runSummary.status,
     runStatusChangedAt: Number(runSummary.changedAt || updatedAt || createdAt || 0),
     listAnchorAt: chatListAnchorForChat(chat),
+    contextTokens: latestContextTokens(messages),
     ...(chat.windowPartial === true ? { partial: true } : {}),
   }
 }
@@ -139,6 +143,7 @@ export function normalizeChatMeta(raw: any, fallbackId = '', fallbackTitle = '�
     runStatus: hasPending ? 'running' : runStatus,
     runStatusChangedAt: Number((obj as any).runStatusChangedAt || (obj as any).statusChangedAt || updatedAt || createdAt || 0) || updatedAt,
     listAnchorAt: chatListAnchorForIndex(obj, createdAt, updatedAt),
+    contextTokens: normalizeMessageContextTokens((obj as any).contextTokens),
     ...((obj as any).partial === true ? { partial: true } : {}),
   }
 }
@@ -241,7 +246,8 @@ export function chatMetaUpdatedAtMap(listRaw: any): Record<string, number> {
 // chatMetaShapeKey 是「列表要重新显示的事实」的结构签名。
 //
 // 收录字段只有列表真正读的那些：身份（id）、标题、条数、摘要、运行指示
-// （hasPending / runStatus / runStatusChangedAt）、位置（listAnchorAt）与来源
+// （hasPending / runStatus / runStatusChangedAt）、位置（listAnchorAt）、
+// 上下文用量（contextTokens，侧边栏 B 的桌面条目要显示它）与来源
 // （partial，它决定这份事实能不能覆盖索引里的既有事实）。
 //
 // 不收录 updatedAt：时间推进不是版本。它只决定列表上的「几点」，不决定显示什么；
@@ -276,6 +282,7 @@ export function chatMetaShapeKey(meta: unknown): string {
     shapeText(obj.runStatus),
     shapeNumber(obj.runStatusChangedAt),
     shapeNumber(obj.listAnchorAt),
+    shapeNumber(obj.contextTokens),
     shapeFlag(obj.partial),
   ].join(CHAT_META_SHAPE_SEPARATOR)
 }

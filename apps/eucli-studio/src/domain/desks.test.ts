@@ -75,3 +75,40 @@ describe('工作桌面条目的会话事实', () => {
     expect(entries.map((entry) => entry.title)).toEqual(['新聊天', '群聊', '工作区会话'])
   })
 })
+
+describe('工作桌面条目的上下文用量', () => {
+  it('索引里有真值时取索引值', () => {
+    const data = dataOf({
+      chatsByRole: { 'role-a': { chatMetas: [{ id: 'chat-1', title: '甲会话', contextTokens: 32000 }] } },
+    })
+    const entries = resolveDeskEntries(data, desksOf([ref('role', 'role-a', '', 'chat-1')]))
+    expect(entries[0].contextTokens).toBe(32000)
+  })
+
+  it('正文在内存时取正文里最后一条带真值的消息，它比索引新', () => {
+    const data = dataOf({
+      chatsByRole: {
+        'role-a': {
+          chatMetas: [{ id: 'chat-1', title: '甲会话', contextTokens: 32000 }],
+          chats: [
+            {
+              id: 'chat-1',
+              title: '甲会话',
+              messages: [
+                { id: 'm1', contextTokens: 41000 },
+                { id: 'm2' },
+              ],
+            },
+          ],
+        },
+      },
+    })
+    const entries = resolveDeskEntries(data, desksOf([ref('role', 'role-a', '', 'chat-1')]))
+    expect(entries[0].contextTokens).toBe(41000)
+  })
+
+  it('两处都没有真值时是 0，不估算', () => {
+    const entries = resolveDeskEntries(dataOf(), desksOf([ref('role', 'role-a', '', 'chat-1')]))
+    expect(entries[0].contextTokens).toBe(0)
+  })
+})

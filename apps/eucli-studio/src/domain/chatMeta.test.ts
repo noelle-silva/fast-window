@@ -49,6 +49,35 @@ describe('chatMeta window partiality', () => {
   })
 })
 
+describe('chatMeta 的上下文用量', () => {
+  it('索引 meta 归一化后保留 contextTokens', () => {
+    const metas = chatMetasFromBox({
+      chatIds: ['chat-1'],
+      chatUpdatedAt: { 'chat-1': 100 },
+      chatMetas: [{ id: 'chat-1', title: '会话', createdAt: 1, updatedAt: 100, contextTokens: 32000 }],
+    })
+    expect(metas[0].contextTokens).toBe(32000)
+  })
+
+  it('正文在内存时取最后一条带真值的消息', () => {
+    const meta = chatMetaFromChat({
+      id: 'chat-1',
+      title: '会话',
+      messages: [{ id: 'm1', contextTokens: 41000 }, { id: 'm2' }],
+    })
+    expect(meta?.contextTokens).toBe(41000)
+  })
+
+  it('两边都没有真值时是 0，不估算', () => {
+    const metas = chatMetasFromBox({
+      chatIds: ['chat-1'],
+      chatUpdatedAt: { 'chat-1': 100 },
+      chatMetas: [{ id: 'chat-1', title: '会话', createdAt: 1, updatedAt: 100 }],
+    })
+    expect(metas[0].contextTokens).toBe(0)
+  })
+})
+
 describe('chatMeta 事实优先级', () => {
   function meta(partial: Partial<ChatMeta>): ChatMeta {
     return {
@@ -62,6 +91,7 @@ describe('chatMeta 事实优先级', () => {
       runStatus: 'idle',
       runStatusChangedAt: 0,
       listAnchorAt: 1,
+      contextTokens: 0,
       ...partial,
     }
   }
@@ -122,6 +152,7 @@ describe('chatMetaShapeKey：列表结构签名', () => {
       runStatus: 'idle',
       runStatusChangedAt: 1,
       listAnchorAt: 1,
+      contextTokens: 0,
       ...partial,
     }
   }
@@ -135,6 +166,7 @@ describe('chatMetaShapeKey：列表结构签名', () => {
     expect(chatMetaShapeKey(meta({ runStatus: 'running', hasPending: true }))).not.toBe(base)
     expect(chatMetaShapeKey(meta({ lastMessagePreview: '新的摘要' }))).not.toBe(base)
     expect(chatMetaShapeKey(meta({ listAnchorAt: 99 }))).not.toBe(base)
+    expect(chatMetaShapeKey(meta({ contextTokens: 32000 }))).not.toBe(base)
   })
 
   it('对条数与来源（partial）敏感：它们是侧边栏显示与合并规则的输入', () => {
