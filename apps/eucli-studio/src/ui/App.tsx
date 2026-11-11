@@ -90,6 +90,8 @@ import { addDeskDraft } from '../domain/deskDrafts'
 import { parseWorkspaceRoleTargetId, workspaceRoleTargetId } from '../domain/workspaceRoleTarget'
 import { sessionRefScopes } from '../domain/sessionRefScope'
 import { useSidebarNavigation } from './hooks/useSidebarNavigation'
+import { useSessionScrollNav } from './hooks/useSessionScrollNav'
+import { applySessionScrollIntent, type SessionScrollIntent } from './scroll/sessionScrollNav'
 import { createStudioMuiTheme } from './colorThemeStyles'
 import { ChatTreeModal } from './chatTree/ChatTreeModal'
 import { ShellFrame } from './surfaces/ShellFrame'
@@ -415,6 +417,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     if (stickFrameRef.current) return
     stickFrameRef.current = requestAnimationFrame(() => {
       stickFrameRef.current = 0
+      // 排队期间用户自己翻过页：这一帧不再把视图拽回底部。
+      if (!stickToBottomRef.current) return
       const el = chatRootRef.current
       if (!el) return
       try {
@@ -948,6 +952,26 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
 
   // 滚动跟随只对「当前可见页」生效：隐藏的保活页不参与任何 scrollTop 写入。
   const pageVisible = sessionVisibleKey === sessionPageKey && !!sessionPageKey
+
+  // 键盘翻页：Ctrl + PageUp / PageDown / Home / End 一律滚当前可见的会话，
+  // 光标停在草稿框里也照样生效——这组键是「看消息」的，不该被输入框截走。
+  const onSessionScrollIntent = useEvent((intent: SessionScrollIntent, el: HTMLElement) => {
+    // 已经排队的跟底帧先撤掉：这一下是用户自己在换视野，别在动画途中被拽回底部。
+    if (stickFrameRef.current) {
+      cancelAnimationFrame(stickFrameRef.current)
+      stickFrameRef.current = 0
+    }
+    // 滚动是动画，读完位置会滞后；先把「要不要继续追新」定下来，
+    // 动画途中的实际位置再由滚动事件一路校正。
+    // PageDown 单独看：原本就贴着底部时它不产生位移，保持跟随才对。
+    stickToBottomRef.current = intent === 'bottom' || (intent === 'page-down' && isNearBottom(el))
+    applySessionScrollIntent(el, intent)
+  })
+  useSessionScrollNav({
+    enabled: page === 'chat' && pageVisible && !s.modal,
+    scrollRef: chatRootRef,
+    onIntent: onSessionScrollIntent,
+  })
 
   React.useEffect(() => {
     if (page !== 'chat' || !pageVisible) return
