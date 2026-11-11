@@ -9,7 +9,16 @@ import type { TaskNode, TaskTree } from '../../domain/taskTree'
 ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
 
 function node(id: string, name: string, children: TaskNode[] = []): TaskNode {
-  return { id, name, description: '', content: '', children, createdAt: '', updatedAt: '' }
+  return {
+    id,
+    name,
+    description: '',
+    content: '',
+    copyHighlight: false,
+    children,
+    createdAt: '',
+    updatedAt: '',
+  }
 }
 
 const ROLE_TREE: TaskTree = { tasks: [node('a', '甲', [node('a1', '甲一')]), node('b', '乙')] }
@@ -137,6 +146,33 @@ describe('任务面板', () => {
     expect(saveCall?.[3].tasks[0].name).toBe('甲改')
     // 兄弟节点不受影响。
     expect(saveCall?.[3].tasks[1].name).toBe('乙')
+  })
+
+  it('打开复制高亮开关后保存，卡片带上的标记会写回整棵树', async () => {
+    const calls: any[][] = []
+    await act(async () => {
+      root.render(<TaskTreePanel controller={createController(calls)} roles={[{ id: 'r1', name: '角色一' }]} />)
+    })
+
+    const cardTitle = Array.from(host!.querySelectorAll('p')).find((element) => element.textContent === '甲')
+    await act(async () => {
+      click(cardTitle || null)
+    })
+
+    const highlightSwitch = host!.querySelector('input[aria-label="复制键高亮"]')
+    expect(highlightSwitch).toBeTruthy()
+    await act(async () => {
+      click(highlightSwitch)
+    })
+
+    const saveButton = findButton(host!, '保存')
+    await act(async () => {
+      click(saveButton)
+    })
+
+    const saveCall = calls.find((call) => call[0] === 'save')
+    expect(saveCall?.[3].tasks[0].copyHighlight).toBe(true)
+    expect(saveCall?.[3].tasks[1].copyHighlight).toBe(false)
   })
 
   it('新建任务在根层时以空父级提交', async () => {

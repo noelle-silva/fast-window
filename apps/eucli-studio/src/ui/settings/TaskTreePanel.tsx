@@ -236,6 +236,7 @@ export function TaskTreePanel(props: TaskTreePanelProps) {
       name: '',
       description: '',
       content: '',
+      copyHighlight: false,
       children: [],
       createdAt: '',
       updatedAt: '',
@@ -389,6 +390,7 @@ export function TaskTreePanel(props: TaskTreePanelProps) {
       key={node.id}
       title={taskLabel(node)}
       description={node.description}
+      copyHighlight={node.copyHighlight}
       copied={copiedId === node.id}
       canCopy={Boolean(node.content.trim())}
       menuItems={cardMenu(node)}

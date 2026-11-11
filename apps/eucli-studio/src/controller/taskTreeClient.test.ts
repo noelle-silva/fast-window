@@ -22,7 +22,16 @@ function createRecorder() {
 }
 
 function node(id: string): TaskNode {
-  return { id, name: '', description: '', content: '', children: [], createdAt: '', updatedAt: '' }
+  return {
+    id,
+    name: '',
+    description: '',
+    content: '',
+    copyHighlight: false,
+    children: [],
+    createdAt: '',
+    updatedAt: '',
+  }
 }
 
 describe('任务树请求路径', () => {

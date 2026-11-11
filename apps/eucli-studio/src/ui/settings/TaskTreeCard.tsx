@@ -2,20 +2,27 @@ import * as React from 'react'
 import { Box, IconButton, Typography } from '@mui/material'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import { MoreActionsMenu, type MoreActionsMenuItem } from '../components/MoreActionsMenu'
+import { colorMixVar } from '../colorThemeStyles'
 
 // 任务卡片：面上一行标题 + 复制键 + 更多菜单，整张卡可点进下一层。
 // 标题同时也是键盘可达的按钮；复制与更多都在覆盖层之上，不会被整卡点击吃掉。
+// 复制键的常态配色由节点的「复制高亮」标记决定：开启后与主题色同色系，
+// 复制成功那一刻再用实心主题色回应，两种状态不打架。
 
 export function TaskTreeCard(props: {
   title: string
   description: string
+  /** 复制键用主题色标出：来自编辑位里描述右侧的「复制高亮」开关。 */
+  copyHighlight: boolean
   copied: boolean
   canCopy: boolean
   menuItems: MoreActionsMenuItem[]
   onOpen: () => void
   onCopy: () => void
 }) {
-  const { title, description, copied, canCopy, menuItems, onOpen, onCopy } = props
+  const { title, description, copyHighlight, copied, canCopy, menuItems, onOpen, onCopy } = props
+  // 没有可复制内容时复制键本来按不动，不必再强调一个点不动的按钮。
+  const highlighted = copyHighlight && canCopy
 
   return (
     <Box
@@ -80,9 +87,19 @@ export function TaskTreeCard(props: {
           disabled={!canCopy}
           onClick={onCopy}
           sx={{
-            color: copied ? '#fff' : 'var(--studio-text-tertiary)',
-            bgcolor: copied ? 'var(--studio-primary)' : 'transparent',
-            '&:hover': { bgcolor: copied ? 'var(--studio-primary)' : 'var(--studio-field-hover)' },
+            color: copied ? '#fff' : highlighted ? 'var(--studio-primary)' : 'var(--studio-text-tertiary)',
+            bgcolor: copied
+              ? 'var(--studio-primary)'
+              : highlighted
+                ? 'var(--studio-primary-soft)'
+                : 'transparent',
+            '&:hover': {
+              bgcolor: copied
+                ? 'var(--studio-primary)'
+                : highlighted
+                  ? colorMixVar('--studio-primary', 20)
+                  : 'var(--studio-field-hover)',
+            },
           }}
         >
           <ContentCopyIcon fontSize="small" />

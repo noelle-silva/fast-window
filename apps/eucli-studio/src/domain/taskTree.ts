@@ -17,6 +17,8 @@ export type TaskNode = {
   name: string
   description: string
   content: string
+  /** 卡片展示标记：开启后这一层的复制键用主题色标出；不影响复制的内容与行为。 */
+  copyHighlight: boolean
   children: TaskNode[]
   createdAt: string
   updatedAt: string
@@ -26,12 +28,13 @@ export type TaskTree = {
   tasks: TaskNode[]
 }
 
-/** 编辑中的节点副本：只包含人改得动的三个字段。 */
+/** 编辑中的节点副本：只包含人改得动的四个字段。 */
 export type TaskDraft = {
   id: string
   name: string
   description: string
   content: string
+  copyHighlight: boolean
 }
 
 export const EMPTY_TASK_TREE: TaskTree = { tasks: [] }
@@ -49,6 +52,8 @@ export function normalizeTaskNode(raw: any): TaskNode {
     name: text(raw?.name),
     description: text(raw?.description),
     content: String(raw?.content ?? ''),
+    // 只认真正的布尔真值：旧数据没有这个字段，读出来就是关闭。
+    copyHighlight: raw?.copyHighlight === true,
     children: Array.isArray(raw?.children) ? raw.children.map(normalizeTaskNode) : [],
     createdAt: text(raw?.createdAt),
     updatedAt: text(raw?.updatedAt),
@@ -111,20 +116,37 @@ export function taskById(tree: TaskTree, taskId: string): TaskNode | null {
 
 export function taskDraftOf(node: TaskNode | null | undefined): TaskDraft | null {
   if (!node) return null
-  return { id: node.id, name: node.name, description: node.description, content: node.content }
+  return {
+    id: node.id,
+    name: node.name,
+    description: node.description,
+    content: node.content,
+    copyHighlight: node.copyHighlight,
+  }
 }
 
 export function taskDraftIsDirty(node: TaskNode | null | undefined, draft: TaskDraft | null): boolean {
   if (!node || !draft || node.id !== draft.id) return false
-  return node.name !== draft.name || node.description !== draft.description || node.content !== draft.content
+  return (
+    node.name !== draft.name ||
+    node.description !== draft.description ||
+    node.content !== draft.content ||
+    node.copyHighlight !== draft.copyHighlight
+  )
 }
 
-/** 把草稿的三个字段写回树里的同 id 节点，其余部分原样保留。 */
+/** 把草稿的四个字段写回树里的同 id 节点，其余部分原样保留。 */
 export function applyTaskDraft(tree: TaskTree, draft: TaskDraft): TaskTree {
   const walk = (nodes: TaskNode[]): TaskNode[] =>
     nodes.map((node) => {
       if (node.id === draft.id) {
-        return { ...node, name: draft.name, description: draft.description, content: draft.content }
+        return {
+          ...node,
+          name: draft.name,
+          description: draft.description,
+          content: draft.content,
+          copyHighlight: draft.copyHighlight,
+        }
       }
       if (!node.children.length) return node
       return { ...node, children: walk(node.children) }

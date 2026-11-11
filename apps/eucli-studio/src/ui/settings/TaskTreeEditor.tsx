@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Box, IconButton, Stack, TextField } from '@mui/material'
+import { Box, IconButton, Stack, Switch, TextField, Tooltip, Typography } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
@@ -13,6 +13,7 @@ import { UNNAMED_TASK_LABEL, type TaskDraft } from '../../domain/taskTree'
 // 只负责画与回调，脏判断、保存与结构动作由面板决定。
 //
 // 保存、复制、移动到名字右侧，只占图标；
+// 描述右侧是「复制高亮」开关：它只影响卡片上复制键的配色，是展示标记；
 // 可复制文本吃满剩余高度并在框内自滚，外层不再整列滚动，滑块用项目自制的那一套。
 
 const FILLED_SECONDARY_SX = {
@@ -119,14 +120,43 @@ export function TaskTreeEditor(props: {
         />
       </Stack>
 
-      <TextField
-        size="small"
-        label="描述"
-        multiline
-        minRows={2}
-        value={draft?.description ?? ''}
-        onChange={(event) => onDraftChange({ description: event.target.value })}
-      />
+      <Stack direction="row" spacing={1.25} alignItems="flex-start">
+        <TextField
+          size="small"
+          label="描述"
+          multiline
+          minRows={2}
+          value={draft?.description ?? ''}
+          onChange={(event) => onDraftChange({ description: event.target.value })}
+          sx={{ flex: 1, minWidth: 0 }}
+        />
+        {/* 卡片墙上的复制键要不要用主题色标出来：只改外观，不动复制内容与复制行为。 */}
+        <Tooltip title="开启后，卡片上的复制键用主题色标出">
+          <Box
+            sx={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              width: 58,
+              flexShrink: 0,
+              pt: 0.25,
+            }}
+          >
+            <Switch
+              size="small"
+              checked={Boolean(draft?.copyHighlight)}
+              onChange={(event) => onDraftChange({ copyHighlight: event.target.checked })}
+              slotProps={{ input: { 'aria-label': '复制键高亮' } }}
+            />
+            <Typography
+              component="span"
+              sx={{ fontSize: 11, lineHeight: '14px', color: 'var(--studio-text-tertiary)', whiteSpace: 'nowrap' }}
+            >
+              复制高亮
+            </Typography>
+          </Box>
+        </Tooltip>
+      </Stack>
 
       <FillTextarea
         label="可复制文本"

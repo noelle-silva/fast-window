@@ -6,6 +6,7 @@ import {
   resolveTaskPath,
   taskById,
   taskDraftIsDirty,
+  taskDraftOf,
   taskLabel,
   taskLayerNodes,
   taskParentOptions,
@@ -16,7 +17,16 @@ import {
 } from './taskTree'
 
 function node(id: string, children: TaskNode[] = [], name = ''): TaskNode {
-  return { id, name, description: '', content: '', children, createdAt: '', updatedAt: '' }
+  return {
+    id,
+    name,
+    description: '',
+    content: '',
+    copyHighlight: false,
+    children,
+    createdAt: '',
+    updatedAt: '',
+  }
 }
 
 const TREE = normalizeTaskTree({
@@ -36,6 +46,13 @@ describe('normalizeTaskTree', () => {
   it('returns an empty tree for junk input', () => {
     expect(normalizeTaskTree(undefined).tasks).toEqual([])
     expect(normalizeTaskTree({ tasks: 'nope' }).tasks).toEqual([])
+  })
+
+  // 旧数据没有这个字段，读出来必须是关闭；只有真正的 true 才算开启。
+  it('reads the copy highlight flag as a strict boolean', () => {
+    expect(normalizeTaskTree({ tasks: [{ id: 'a' }] }).tasks[0].copyHighlight).toBe(false)
+    expect(normalizeTaskTree({ tasks: [{ id: 'a', copyHighlight: true }] }).tasks[0].copyHighlight).toBe(true)
+    expect(normalizeTaskTree({ tasks: [{ id: 'a', copyHighlight: 'true' }] }).tasks[0].copyHighlight).toBe(false)
   })
 
   it('falls back to a readable label when the name is empty', () => {
@@ -105,18 +122,43 @@ describe('taskParentOptions', () => {
 
 describe('draft', () => {
   it('only rewrites the target node', () => {
-    const next = applyTaskDraft(TREE, { id: 'a1', name: '改过', description: '备注', content: '正文' })
-    expect(next.tasks[0].children[0]).toMatchObject({ id: 'a1', name: '改过', description: '备注', content: '正文' })
+    const next = applyTaskDraft(TREE, {
+      id: 'a1',
+      name: '改过',
+      description: '备注',
+      content: '正文',
+      copyHighlight: true,
+    })
+    expect(next.tasks[0].children[0]).toMatchObject({
+      id: 'a1',
+      name: '改过',
+      description: '备注',
+      content: '正文',
+      copyHighlight: true,
+    })
     // 同层的兄弟与上一级都不跟着变。
-    expect(next.tasks[0].children[1]).toMatchObject({ id: 'a2', name: '甲二' })
+    expect(next.tasks[0].children[1]).toMatchObject({ id: 'a2', name: '甲二', copyHighlight: false })
     expect(next.tasks[1].name).toBe('乙')
+  })
+
+  it('carries the highlight flag into the draft', () => {
+    expect(taskDraftOf({ ...node('a'), copyHighlight: true })).toEqual({
+      id: 'a',
+      name: '',
+      description: '',
+      content: '',
+      copyHighlight: true,
+    })
+    expect(taskDraftOf(null)).toBeNull()
   })
 
   it('reports dirty only for real field changes', () => {
     const current = node('a', [], '甲')
-    expect(taskDraftIsDirty(current, { id: 'a', name: '甲', description: '', content: '' })).toBe(false)
-    expect(taskDraftIsDirty(current, { id: 'a', name: '甲 ', description: '', content: '' })).toBe(true)
-    expect(taskDraftIsDirty(current, { id: 'other', name: '甲', description: '', content: '' })).toBe(false)
+    const draft = { id: 'a', name: '甲', description: '', content: '', copyHighlight: false }
+    expect(taskDraftIsDirty(current, draft)).toBe(false)
+    expect(taskDraftIsDirty(current, { ...draft, name: '甲 ' })).toBe(true)
+    expect(taskDraftIsDirty(current, { ...draft, copyHighlight: true })).toBe(true)
+    expect(taskDraftIsDirty(current, { ...draft, id: 'other' })).toBe(false)
     expect(taskDraftIsDirty(null, null)).toBe(false)
   })
 })
