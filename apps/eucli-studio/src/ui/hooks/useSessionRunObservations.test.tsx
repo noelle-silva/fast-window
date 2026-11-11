@@ -150,4 +150,29 @@ describe('useSessionRunObservations', () => {
     await render({ data: completed, activeChatId: 'c1' })
     expect(apiRef.current.chatSessionRunNotices['role:r1:c1']).toBeUndefined()
   })
+
+  it('正看着的会话跑完算已读：离开它之后也不会冒出迟到的通知', async () => {
+    const running = createData('running')
+    await render({ data: running, activeChatId: 'c1' })
+
+    const completed = createData('completed')
+    completed.chatsByRole.r1.chats[0].runStatusChangedAt = 200
+    await render({ data: completed, activeChatId: 'c1' })
+    expect(apiRef.current.chatSessionRunNotices).toEqual({})
+
+    // 换到别的会话：这条会话没有「未读」要补，不该在离开时才冒出来。
+    await render({ data: completed, activeChatId: 'c2' })
+    expect(apiRef.current.chatSessionRunNotices['role:r1:c1']).toBeUndefined()
+  })
+
+  it('不在看的会话跑完仍然记一条未读', async () => {
+    const running = createData('running')
+    await render({ data: running, activeChatId: 'c2' })
+
+    const completed = createData('completed')
+    completed.chatsByRole.r1.chats[0].runStatusChangedAt = 200
+    await render({ data: completed, activeChatId: 'c2' })
+
+    expect(apiRef.current.chatSessionRunNotices['role:r1:c1']).toEqual({ kind: 'completed', changedAt: 200 })
+  })
 })

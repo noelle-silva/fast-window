@@ -31,6 +31,13 @@ export function useSessionRunObservations(deps: {
   const [chatSessionRunNotices, setChatSessionRunNotices] = React.useState<Record<string, ChatSessionRunNotice>>({})
   const chatSessionRunStatusRef = React.useRef<Record<string, ChatSessionRunObservation>>({})
 
+  // 此刻正开在眼前的会话：它跑到终态时用户已经看见了，这一条就是「已读」，不该进通知表。
+  // 扫描只由数据 / 运行卡版本驱动，不能把 activeKey 拉进依赖（切会话不该付全表扫描的代价），
+  // 所以用 ref 承接最新键；渲染期写入，保证扫描读到的是这一帧的值。
+  const activeNoticeKey = chatSessionRunNoticeKey(activeTargetKind, activeChatTargetId, activeChatId)
+  const activeNoticeKeyRef = React.useRef(activeNoticeKey)
+  activeNoticeKeyRef.current = activeNoticeKey
+
   React.useEffect(() => {
     const observations = collectChatSessionRunObservations(data)
     const previousByKey = chatSessionRunStatusRef.current
@@ -57,6 +64,9 @@ export function useSessionRunObservations(deps: {
           continue
         }
         if (terminal && previous?.status === 'running') {
+          // 正看着的会话跑完：等于已读，不登记。漏掉这一步的话，通知会先被「当前会话」挡着，
+          // 等用户离开那个会话才露出来，看起来像一条迟到的未读。
+          if (observation.key === activeNoticeKeyRef.current) continue
           const kind = observation.status as ChatSessionRunNoticeKind
           const changedAt = Number(observation.changedAt || 0)
           if (!next[observation.key] || next[observation.key].kind !== kind || Number(next[observation.key].changedAt || 0) !== changedAt) {
