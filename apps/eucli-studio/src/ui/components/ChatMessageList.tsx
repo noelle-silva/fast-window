@@ -327,6 +327,7 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
             borderRadius: 3,
             overflow: 'hidden',
             bgcolor: 'color-mix(in srgb, var(--studio-primary) 10%, transparent)',
+            boxShadow: 'var(--studio-shadow-soft)',
           }}
         >
           {toolProcessBar('start', range, expanded, onToggle)}
