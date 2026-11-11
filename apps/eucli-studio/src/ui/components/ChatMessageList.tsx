@@ -310,7 +310,7 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
       return rows
     }
     let cursor = 0
-    for (const range of findToolProcessRanges(revealedFlow)) {
+    for (const range of findToolProcessRanges(revealedFlow, { isLive: isAssistantGenerating })) {
       for (let index = cursor; index < range.start; index++) rows.push(renderRow(revealedFlow[index]))
       const key = `tool-process:${messageId(revealedFlow[range.start]) || range.start}`
       // 「输出中」的判定：这一段里还有消息在生成。
