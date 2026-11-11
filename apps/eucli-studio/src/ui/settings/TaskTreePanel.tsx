@@ -9,11 +9,14 @@ import {
   Select,
   Stack,
   Typography,
+  type SxProps,
+  type Theme,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import DriveFileMoveOutlinedIcon from '@mui/icons-material/DriveFileMoveOutlined'
+import { CustomScrollArea } from '../components/CustomScrollArea'
 import { type MoreActionsMenuItem } from '../components/MoreActionsMenu'
 import { SettingsSurface } from './SettingsSurfaces'
 import { TaskTreeCard } from './TaskTreeCard'
@@ -78,6 +81,16 @@ const FILLED_SECONDARY_SX = {
   color: 'var(--studio-text-primary)',
   boxShadow: 'var(--studio-shadow-soft)',
   '&:hover': { bgcolor: 'var(--studio-field-hover)', boxShadow: 'var(--studio-shadow-soft)' },
+}
+
+// 卡片墙的内容层：网格排布连同内边距一起放进滚动内容里（跟着一起滚），
+// 内边距留给卡片的 hover 阴影与上浮位移，不会被滚动容器裁掉。
+const TASK_WALL_CONTENT_SX: SxProps<Theme> = {
+  p: 2,
+  display: 'grid',
+  gridTemplateColumns: { xs: 'repeat(auto-fill, minmax(150px, 1fr))', sm: 'repeat(auto-fill, minmax(220px, 1fr))' },
+  gap: 2,
+  alignContent: 'start',
 }
 
 function text(value: unknown) {
@@ -534,21 +547,14 @@ export function TaskTreePanel(props: TaskTreePanelProps) {
 
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, minHeight: 0 }}>
           {layerNodes.length ? (
-            <Box
-              sx={{
-                flex: 1,
-                minHeight: 0,
-                overflowY: 'auto',
-                display: 'grid',
-                gridTemplateColumns: { xs: 'repeat(auto-fill, minmax(150px, 1fr))', sm: 'repeat(auto-fill, minmax(220px, 1fr))' },
-                gap: 2,
-                alignContent: 'start',
-                // 留出内边距：hover 的阴影与上浮位移都落在这段空间里，不会被滚动容器裁掉。
-                p: 2,
-              }}
+            <CustomScrollArea
+              axis="y"
+              hostSx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
+              scrollSx={{ flex: 1, minHeight: 0 }}
+              contentSx={TASK_WALL_CONTENT_SX}
             >
               {layerNodes.map(renderCard)}
-            </Box>
+            </CustomScrollArea>
           ) : (
             <Box
               sx={{
