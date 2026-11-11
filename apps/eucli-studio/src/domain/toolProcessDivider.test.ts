@@ -33,7 +33,7 @@ describe('findToolProcessRanges 的运行态口径', () => {
     ]
 
     const running = findToolProcessRanges(messages, { isLive: isRunning })
-    expect(running).toEqual([{ start: 1, end: 2, rounds: 1, toolCalls: 1 }])
+    expect(running).toEqual([{ start: 1, end: 2, rounds: 1, toolCalls: 1, pendingConfirmations: 0 }])
 
     const settledMessages = [
       messages[0],
@@ -41,7 +41,7 @@ describe('findToolProcessRanges 的运行态口径', () => {
       assistant('a2', { generationId: 'g1', status: 'completed' }),
     ]
     const settled = findToolProcessRanges(settledMessages, { isLive: isRunning })
-    expect(settled).toEqual([{ start: 1, end: 1, rounds: 1, toolCalls: 1 }])
+    expect(settled).toEqual([{ start: 1, end: 1, rounds: 1, toolCalls: 1, pendingConfirmations: 0 }])
   })
 
   it('工具部件落进来时，同一次运行里先到的思考算作过程开头', () => {
@@ -51,7 +51,7 @@ describe('findToolProcessRanges 的运行态口径', () => {
       assistant('a2', { tools: 2, generationId: 'g1', status: 'running' }),
     ]
     expect(findToolProcessRanges(messages, { isLive: isRunning })).toEqual([
-      { start: 1, end: 2, rounds: 1, toolCalls: 2 },
+      { start: 1, end: 2, rounds: 1, toolCalls: 2, pendingConfirmations: 0 },
     ])
   })
 
@@ -64,7 +64,7 @@ describe('findToolProcessRanges 的运行态口径', () => {
       user('u2'),
     ]
     expect(findToolProcessRanges(messages, { isLive: isRunning })).toEqual([
-      { start: 1, end: 3, rounds: 2, toolCalls: 2 },
+      { start: 1, end: 3, rounds: 2, toolCalls: 2, pendingConfirmations: 0 },
     ])
   })
 
@@ -76,8 +76,8 @@ describe('findToolProcessRanges 的运行态口径', () => {
       assistant('a2', { tools: 1 }),
     ]
     expect(findToolProcessRanges(messages, { isLive: isRunning })).toEqual([
-      { start: 1, end: 1, rounds: 1, toolCalls: 1 },
-      { start: 3, end: 3, rounds: 1, toolCalls: 1 },
+      { start: 1, end: 1, rounds: 1, toolCalls: 1, pendingConfirmations: 0 },
+      { start: 3, end: 3, rounds: 1, toolCalls: 1, pendingConfirmations: 0 },
     ])
   })
 
@@ -129,6 +129,31 @@ describe('findToolProcessRanges 的运行态口径', () => {
       ],
       { isLive: isRunning },
     )
-    expect(settled).toEqual([{ start: 1, end: 2, rounds: 2, toolCalls: 2 }])
+    expect(settled).toEqual([{ start: 1, end: 2, rounds: 2, toolCalls: 2, pendingConfirmations: 0 }])
+  })
+
+  it('等待确认的工具调用单独计数', () => {
+    const messages = [
+      user('u1'),
+      {
+        id: 'a1',
+        role: 'assistant',
+        type: 'assistant',
+        content: '',
+        parts: [
+          { id: 't1', type: 'tool', state: 'completed', result: { status: 'success' } },
+          {
+            id: 't2',
+            type: 'tool',
+            state: 'needs_confirmation',
+            decision: { id: 'd1', status: 'needs_confirmation' },
+          },
+        ],
+      },
+    ]
+
+    expect(findToolProcessRanges(messages)).toEqual([
+      { start: 1, end: 1, rounds: 1, toolCalls: 2, pendingConfirmations: 1 },
+    ])
   })
 })

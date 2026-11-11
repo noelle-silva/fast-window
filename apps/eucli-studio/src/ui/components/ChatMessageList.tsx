@@ -361,10 +361,11 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
 // 上下两条同构，箭头只反映当前是展开还是收起。
 function toolProcessBar(
   edge: 'start' | 'end',
-  range: { rounds: number; toolCalls: number },
+  range: { rounds: number; toolCalls: number; pendingConfirmations: number },
   expanded: boolean,
   onToggle: () => void,
 ) {
+  const pending = range.pendingConfirmations > 0
   return (
     <Paper
       elevation={0}
@@ -396,8 +397,8 @@ function toolProcessBar(
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            bgcolor: 'var(--studio-success-bg)',
-            color: 'var(--studio-success-text)',
+            bgcolor: pending ? 'var(--studio-warning-bg)' : 'var(--studio-success-bg)',
+            color: pending ? 'var(--studio-warning-text)' : 'var(--studio-success-text)',
           }}
         >
           <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: 'currentColor' }} />
@@ -406,13 +407,24 @@ function toolProcessBar(
           <Typography variant="body2" noWrap sx={{ fontWeight: 950, color: 'var(--studio-text-primary)' }}>
             工作过程
           </Typography>
-          <Typography
-            variant="caption"
-            noWrap
-            sx={{ color: 'var(--studio-text-secondary)', fontVariantNumeric: 'tabular-nums' }}
-          >
-            {range.rounds} 轮 · {range.toolCalls} 次工具调用
-          </Typography>
+          <Stack direction="row" spacing={0.75} alignItems="center" sx={{ minWidth: 0 }}>
+            <Typography
+              variant="caption"
+              noWrap
+              sx={{ color: 'var(--studio-text-secondary)', fontVariantNumeric: 'tabular-nums' }}
+            >
+              {range.rounds} 轮 · {range.toolCalls} 次工具调用
+            </Typography>
+            {pending ? (
+              <Typography
+                variant="caption"
+                noWrap
+                sx={{ color: 'var(--studio-warning-text)', fontWeight: 800, flexShrink: 0 }}
+              >
+                {range.pendingConfirmations} 个工具需要确认
+              </Typography>
+            ) : null}
+          </Stack>
         </Stack>
         <Box sx={{ flex: 1 }} />
         {expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}

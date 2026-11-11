@@ -11,7 +11,14 @@ import { chatMessageMaterialKind, isAsyncToolResultMessage } from './message'
 //   - 收尾后：最后那条无工具的最终回复自然落回过程外，过程只在真正收尾时收缩一次。
 // 判据由 isLive 注入：消息是否仍属于一次进行中的运行。
 
-export type ToolProcessRange = { start: number; end: number; rounds: number; toolCalls: number }
+export type ToolProcessRange = {
+  start: number
+  end: number
+  rounds: number
+  toolCalls: number
+  // 区间内仍在等待用户确认的工具调用数。
+  pendingConfirmations: number
+}
 
 export type ToolProcessOptions = {
   // isLive 返回 true 表示这条消息所属的运行还没收尾。
@@ -30,10 +37,20 @@ function isToolResponse(message: any) {
   return isAsyncToolResultMessage(message) || String(message?.content || '').startsWith(TOOL_RESPONSE_PREFIX)
 }
 
+// 待确认判定与工具确认卡同源：调用状态与决策状态都必须是 needs_confirmation。
+function isPendingConfirmationPart(part: any) {
+  const decision = part?.decision && typeof part.decision === 'object' ? part.decision : null
+  return (
+    String(part?.state || '').trim() === 'needs_confirmation' &&
+    String(decision?.status || '').trim() === 'needs_confirmation'
+  )
+}
+
 // 轮 = 一次模型请求，对应区间内一条带工具的助手消息；调用次数按工具部件计。
 function summarizeRange(messages: any[], start: number, end: number) {
   let rounds = 0
   let toolCalls = 0
+  let pendingConfirmations = 0
   for (let index = start; index <= end; index++) {
     const message = messages[index]
     if (chatMessageMaterialKind(message) !== 'assistant') continue
@@ -41,9 +58,12 @@ function summarizeRange(messages: any[], start: number, end: number) {
     const tools = parts.filter((part: any) => String(part?.type || '').trim() === 'tool')
     if (!tools.length) continue
     rounds++
-    toolCalls += tools.length
+    for (const part of tools) {
+      toolCalls++
+      if (isPendingConfirmationPart(part)) pendingConfirmations++
+    }
   }
-  return { rounds, toolCalls }
+  return { rounds, toolCalls, pendingConfirmations }
 }
 
 // 同一次运行：工具部件落进来时，前面那几条同代的思考 / 正文就是这轮过程的开头。
