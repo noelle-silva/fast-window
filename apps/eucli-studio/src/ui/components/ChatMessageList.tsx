@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Box, Collapse, Paper, Stack, Typography } from '@mui/material'
+import { Box, CircularProgress, Collapse, Paper, Stack, Typography } from '@mui/material'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import { isAssistantGenerating } from '../../domain/assistantRunState'
@@ -330,11 +330,11 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
             boxShadow: 'var(--studio-shadow-soft)',
           }}
         >
-          {toolProcessBar('start', range, expanded, onToggle)}
+          {toolProcessBar('start', range, expanded, active, onToggle)}
           <Collapse in={expanded} timeout={180} unmountOnExit>
             <Stack spacing={1.25} sx={{ pt: 1.25 }}>
               {revealedFlow.slice(range.start, range.end + 1).map(renderRow)}
-              {toolProcessBar('end', range, expanded, onToggle)}
+              {toolProcessBar('end', range, expanded, active, onToggle)}
             </Stack>
           </Collapse>
         </Box>,
@@ -363,6 +363,7 @@ function toolProcessBar(
   edge: 'start' | 'end',
   range: { rounds: number; toolCalls: number; pendingConfirmations: number },
   expanded: boolean,
+  active: boolean,
   onToggle: () => void,
 ) {
   const pending = range.pendingConfirmations > 0
@@ -397,11 +398,23 @@ function toolProcessBar(
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            bgcolor: pending ? 'var(--studio-warning-bg)' : 'var(--studio-success-bg)',
-            color: pending ? 'var(--studio-warning-text)' : 'var(--studio-success-text)',
+            bgcolor: pending
+              ? 'var(--studio-warning-bg)'
+              : active
+                ? 'var(--studio-divider)'
+                : 'var(--studio-success-bg)',
+            color: pending
+              ? 'var(--studio-warning-text)'
+              : active
+                ? 'var(--studio-text-secondary)'
+                : 'var(--studio-success-text)',
           }}
         >
-          <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: 'currentColor' }} />
+          {active && !pending ? (
+            <CircularProgress size={13} thickness={5} sx={{ color: 'currentColor' }} />
+          ) : (
+            <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: 'currentColor' }} />
+          )}
         </Box>
         <Stack spacing={0.15} sx={{ minWidth: 0 }}>
           <Typography variant="body2" noWrap sx={{ fontWeight: 950, color: 'var(--studio-text-primary)' }}>
