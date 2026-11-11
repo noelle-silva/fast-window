@@ -52,6 +52,8 @@ function createProps(controller: any, message: any) {
     userMessageCollapseLines: 4,
     reasoningDisplayMode: 'collapse-when-done' as ReasoningDisplayMode,
     reasoningRenderEnabled: false,
+    workProcessDisplayEnabled: false,
+    workProcessDisplayMode: 'collapse-when-done' as const,
     stickersEnabled: false,
     stickerMap: {},
     renderSafetyPolicyKey: 'original',
@@ -206,6 +208,8 @@ describe('ChatMessageList streaming body mounting', () => {
       { key: 'batch-1', messages: [user, toolFirst], revealed: true },
       { key: 'batch-2', messages: [toolSecond], revealed: true },
     ]
+    props.workProcessDisplayEnabled = true
+    props.workProcessDisplayMode = 'stay-expanded'
 
     host = document.createElement('div')
     document.body.appendChild(host)

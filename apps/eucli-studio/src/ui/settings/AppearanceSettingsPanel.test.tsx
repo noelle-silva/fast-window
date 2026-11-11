@@ -121,4 +121,30 @@ describe('外观设置消息屏外跳过', () => {
     })
     expect(resetClientPreferences).toHaveBeenCalledTimes(1)
   })
+
+  it('工作过程缩略显示默认开启，关闭后立即回传开关动作', async () => {
+    const setWorkProcessDisplayEnabled = vi.fn()
+
+    await act(async () => {
+      root.render(renderPanel({}, { setWorkProcessDisplayEnabled }))
+    })
+    expect(switchForSection(host!, '工作过程缩略显示').checked).toBe(true)
+
+    await act(async () => {
+      switchForSection(host!, '工作过程缩略显示').click()
+    })
+    expect(setWorkProcessDisplayEnabled).toHaveBeenCalledWith(false)
+  })
+
+  it('总开关关闭时展开方式不可编辑', async () => {
+    await act(async () => {
+      root.render(renderPanel({ workProcessDisplayEnabled: false }, {}))
+    })
+    expect(host!.querySelector('#fw-work-process-display-mode')?.closest('.Mui-disabled')).toBeTruthy()
+
+    await act(async () => {
+      root.render(renderPanel({ workProcessDisplayEnabled: true }, {}))
+    })
+    expect(host!.querySelector('#fw-work-process-display-mode')?.closest('.Mui-disabled')).toBeFalsy()
+  })
 })

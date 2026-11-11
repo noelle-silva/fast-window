@@ -7,6 +7,7 @@ import type { MessageBatchGroup } from '../../domain/messageBatchMount'
 import { messageOffscreenContentKey } from '../../domain/messageOffscreen'
 import type { MessageMutationOperation } from '../../domain/messageMutationConflicts'
 import type { ReasoningDisplayMode } from '../../domain/reasoningDisplay'
+import { workProcessExpandedByMode, type WorkProcessDisplayMode } from '../../domain/workProcessDisplay'
 import { findToolProcessRanges } from '../../domain/toolProcessDivider'
 import type { MessageOffscreenHandle } from '../hooks/useMessageOffscreen'
 import { buildChatListIndex } from './ChatListIndex'
@@ -48,6 +49,9 @@ type ChatMessageListProps = {
   userMessageCollapseLines: number
   reasoningDisplayMode: ReasoningDisplayMode
   reasoningRenderEnabled: boolean
+  // 工作过程缩略显示：开关决定是否渲染统计块，档位决定默认展开状态。
+  workProcessDisplayEnabled: boolean
+  workProcessDisplayMode: WorkProcessDisplayMode
   stickersEnabled: boolean
   stickerMap: any
   renderSafetyPolicyKey: string
@@ -107,6 +111,8 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
     userMessageCollapseLines,
     reasoningDisplayMode,
     reasoningRenderEnabled,
+    workProcessDisplayEnabled,
+    workProcessDisplayMode,
     stickersEnabled,
     stickerMap,
     renderSafetyPolicyKey,
@@ -267,16 +273,16 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
   // 每一段工具过程渲染成一块：上下两根绿线之间铺主题色半透明底板。
   // 消息仍然由 renderRow 原样产出，只是被放在这层底板里。
   // 每一段工具过程可手动收起：展开时铺主题色底板，收起时只剩一条统计。
-  const [collapsedToolProcess, setCollapsedToolProcess] = React.useState<Set<string>>(() => new Set())
-  const toggleToolProcess = React.useCallback((key: string) => {
-    setCollapsedToolProcess((current) => {
-      const next = new Set(current)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
+  // 用户手动点过的那一段：值即展开状态；没有记录时按档位与运行态决定。
+  const [manualExpanded, setManualExpanded] = React.useState<Map<string, boolean>>(() => new Map())
+  const toggleToolProcess = React.useCallback((key: string, expanded: boolean) => {
+    setManualExpanded((current) => {
+      const next = new Map(current)
+      next.set(key, !expanded)
       return next
     })
   }, [])
-  React.useEffect(() => setCollapsedToolProcess(new Set()), [cacheScope])
+  React.useEffect(() => setManualExpanded(new Map()), [cacheScope])
 
   // 已揭示的历史批次与尾部可见区处在同一条时间线上：分批上屏只决定「谁先可交互」，
   // 不该成为工作过程区间的语义边界——否则更早的一批工具过程永远落不进任何区间。
@@ -298,12 +304,22 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
 
   const messageRows = React.useMemo(() => {
     const rows: React.ReactNode[] = []
+    // 关闭缩略显示时逐消息输出，不产生统计块。
+    if (!workProcessDisplayEnabled) {
+      for (const message of revealedFlow) rows.push(renderRow(message))
+      return rows
+    }
     let cursor = 0
     for (const range of findToolProcessRanges(revealedFlow)) {
       for (let index = cursor; index < range.start; index++) rows.push(renderRow(revealedFlow[index]))
       const key = `tool-process:${messageId(revealedFlow[range.start]) || range.start}`
-      const onToggle = () => toggleToolProcess(key)
-      const collapsed = collapsedToolProcess.has(key)
+      // 「输出中」的判定：这一段里还有消息在生成。
+      const active = revealedFlow
+        .slice(range.start, range.end + 1)
+        .some((message) => isAssistantGenerating(message))
+      const manual = manualExpanded.get(key)
+      const expanded = manual === undefined ? workProcessExpandedByMode(workProcessDisplayMode, active) : manual
+      const onToggle = () => toggleToolProcess(key, expanded)
       rows.push(
         <Box
           key={key}
@@ -313,11 +329,11 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
             bgcolor: 'color-mix(in srgb, var(--studio-primary) 10%, transparent)',
           }}
         >
-          {toolProcessBar('start', range, !collapsed, onToggle)}
-          <Collapse in={!collapsed} timeout={180} unmountOnExit>
+          {toolProcessBar('start', range, expanded, onToggle)}
+          <Collapse in={expanded} timeout={180} unmountOnExit>
             <Stack spacing={1.25} sx={{ pt: 1.25 }}>
               {revealedFlow.slice(range.start, range.end + 1).map(renderRow)}
-              {toolProcessBar('end', range, true, onToggle)}
+              {toolProcessBar('end', range, expanded, onToggle)}
             </Stack>
           </Collapse>
         </Box>,
@@ -326,7 +342,7 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
     }
     for (let index = cursor; index < revealedFlow.length; index++) rows.push(renderRow(revealedFlow[index]))
     return rows
-  }, [revealedFlow, renderRow, collapsedToolProcess, toggleToolProcess])
+  }, [revealedFlow, renderRow, manualExpanded, toggleToolProcess, workProcessDisplayEnabled, workProcessDisplayMode])
 
   return (
     <Stack spacing={1.25} useFlexGap sx={{ position: 'relative' }}>

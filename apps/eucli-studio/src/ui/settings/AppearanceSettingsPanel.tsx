@@ -18,6 +18,11 @@ import {
   normalizeChatLineHeight,
 } from '../../domain/chatFont'
 import { REASONING_DISPLAY_MODE_OPTIONS, normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from '../../domain/reasoningDisplay'
+import {
+  WORK_PROCESS_DISPLAY_MODE_OPTIONS,
+  normalizeWorkProcessDisplayEnabled,
+  normalizeWorkProcessDisplayMode,
+} from '../../domain/workProcessDisplay'
 import { normalizeMessageOffscreenSkipEnabled } from '../../domain/messageOffscreen'
 import {
   CHAT_BG_BLUR_MAX,
@@ -282,6 +287,8 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
   const userMessageCollapseLines = clampNum(Number(settings?.userMessageCollapseLines ?? 8), 1, 50)
   const reasoningDisplayMode = normalizeReasoningDisplayMode(settings?.reasoningDisplayMode)
   const reasoningRenderEnabled = normalizeReasoningRenderEnabled(settings?.reasoningRenderEnabled)
+  const workProcessDisplayEnabled = normalizeWorkProcessDisplayEnabled((settings as any)?.workProcessDisplayEnabled)
+  const workProcessDisplayMode = normalizeWorkProcessDisplayMode((settings as any)?.workProcessDisplayMode)
   const messageOffscreenSkipEnabled = normalizeMessageOffscreenSkipEnabled(settings?.messageOffscreenSkipEnabled)
   const sessionKeepAliveLimit = normalizeSessionKeepAliveLimit((settings as any)?.sessionKeepAliveLimit)
   const branchTree = normalizeBranchTreeSettings((settings as any)?.branchTree)
@@ -803,6 +810,55 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
                 onChange={(e) => controller.actions.setReasoningRenderEnabled?.(!!e.target.checked)}
                 disabled={loading}
               />
+            </Stack>
+          </Stack>
+        </SettingsSection>
+
+        <SettingsSection>
+          <Stack spacing={1.25}>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Box sx={{ minWidth: 0, flex: 1 }}>
+                <Typography sx={{ fontWeight: 900 }}>工作过程缩略显示</Typography>
+                <Typography variant="caption" color="text.secondary">
+                  AI 调用工具时，把这一段收成可展开的统计块；收尾正文留在块外。
+                </Typography>
+              </Box>
+              <Switch
+                size="small"
+                checked={workProcessDisplayEnabled}
+                onChange={(e) => controller.actions.setWorkProcessDisplayEnabled?.(!!e.target.checked)}
+                disabled={loading}
+              />
+            </Stack>
+
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Box sx={{ minWidth: 0, flex: 1 }}>
+                <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                  展开方式
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  这里只是默认展开状态；手动点过的段落以手动选择为准。
+                </Typography>
+              </Box>
+              <FormControl
+                size="small"
+                sx={{ minWidth: { xs: '100%', sm: 220 } }}
+                disabled={loading || !workProcessDisplayEnabled}
+              >
+                <InputLabel id="fw-work-process-display-mode">展开方式</InputLabel>
+                <Select
+                  labelId="fw-work-process-display-mode"
+                  label="展开方式"
+                  value={workProcessDisplayMode}
+                  onChange={(e) => controller.actions.setWorkProcessDisplayMode?.(String(e.target.value || ''))}
+                >
+                  {WORK_PROCESS_DISPLAY_MODE_OPTIONS.map((option) => (
+                    <MenuItem key={option.value} value={option.value}>
+                      {option.label}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
             </Stack>
           </Stack>
         </SettingsSection>

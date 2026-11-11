@@ -62,6 +62,8 @@ function createProps(controller: any, messages: any[]) {
     userMessageCollapseLines: 4,
     reasoningDisplayMode: 'collapse-when-done' as ReasoningDisplayMode,
     reasoningRenderEnabled: false,
+    workProcessDisplayEnabled: false,
+    workProcessDisplayMode: 'collapse-when-done' as const,
     stickersEnabled: false,
     stickerMap: {},
     renderSafetyPolicyKey: 'original',

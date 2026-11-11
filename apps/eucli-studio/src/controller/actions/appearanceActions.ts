@@ -29,6 +29,7 @@ import {
 } from '../../domain/branchTree'
 import { normalizeSettingsNavOrder } from '../../domain/settingsNavigation'
 import { normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from '../../domain/reasoningDisplay'
+import { normalizeWorkProcessDisplayEnabled, normalizeWorkProcessDisplayMode } from '../../domain/workProcessDisplay'
 import { normalizeMessageOffscreenSkipEnabled } from '../../domain/messageOffscreen'
 import { normalizeSessionKeepAliveLimit } from '../../domain/sessionKeepAlive'
 import {
@@ -374,6 +375,18 @@ export function createAppearanceActions(deps: {
     setReasoningRenderEnabled: (enabled: any) => {
       if (!state.data) return
       state.data.settings.reasoningRenderEnabled = normalizeReasoningRenderEnabled(enabled)
+      persistMeta()
+      notifySettings()
+    },
+    setWorkProcessDisplayEnabled: (enabled: any) => {
+      if (!state.data) return
+      ;(state.data.settings as any).workProcessDisplayEnabled = normalizeWorkProcessDisplayEnabled(enabled)
+      persistMeta()
+      notifySettings()
+    },
+    setWorkProcessDisplayMode: (mode: any) => {
+      if (!state.data) return
+      ;(state.data.settings as any).workProcessDisplayMode = normalizeWorkProcessDisplayMode(mode)
       persistMeta()
       notifySettings()
     },
