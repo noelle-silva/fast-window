@@ -273,6 +273,61 @@ func TestSessionIndexCarriesLastMessagePreview(t *testing.T) {
 	}
 }
 
+// TestSessionIndexCarriesContextTokens 钉住工作桌面「会话已使用上下文」的取数链路：
+// 投影层把上游索引摘要里的真值原样搬进 chatMetas.contextTokens，
+// 上游没给过的会话写 0，由展示层统一解释成「无真值」。
+func TestSessionIndexCarriesContextTokens(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/roles/developer/sessions" || r.Method != http.MethodGet {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": []any{
+			map[string]any{
+				"id":            "session-measured",
+				"roleId":        "developer",
+				"title":         "量过的会话",
+				"contextTokens": 32000,
+				"createdAt":     "2026-06-03T10:00:00Z",
+				"updatedAt":     "2026-06-03T10:00:00Z",
+				"lastActive":    "2026-06-03T10:00:00Z",
+			},
+			map[string]any{
+				"id":         "session-unmeasured",
+				"roleId":     "developer",
+				"title":      "没量过的会话",
+				"createdAt":  "2026-06-03T09:00:00Z",
+				"updatedAt":  "2026-06-03T09:00:00Z",
+				"lastActive": "2026-06-03T09:00:00Z",
+			},
+		}})
+	}))
+	defer server.Close()
+
+	store, err := newConfigStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("newConfigStore() error = %v", err)
+	}
+	if _, err := store.saveConnection(server.URL, "", false); err != nil {
+		t.Fatalf("save config error = %v", err)
+	}
+	projection := newProjectionService(store, newEBClient(store, testClientRelease()))
+
+	index, err := projection.sessionsIndexForRole(context.Background(), "developer")
+	if err != nil {
+		t.Fatalf("sessionsIndexForRole() error = %v", err)
+	}
+	metas := objectList(objectMap(index)["chatMetas"])
+	if len(metas) != 2 {
+		t.Fatalf("chatMetas = %#v", objectMap(index)["chatMetas"])
+	}
+	if got := intFromAnyOrZero(metas[0]["contextTokens"]); got != 32000 {
+		t.Fatalf("measured chatMeta.contextTokens = %d, want 32000", got)
+	}
+	if got := intFromAnyOrZero(metas[1]["contextTokens"]); got != 0 {
+		t.Fatalf("unmeasured chatMeta.contextTokens = %d, want 0（无真值不估算）", got)
+	}
+}
+
 func TestStableUpdatedAtUsesMaxPositiveValue(t *testing.T) {
 	if got := stableUpdatedAt(0, -1); got != 1 {
 		t.Fatalf("empty stable updatedAt = %d", got)

@@ -541,7 +541,16 @@ func buildSessionIndex(sessions []map[string]any, fallbackTitle string, baseUpda
 		if version := uint64FromAnyOrZero(session["version"]); version > 0 {
 			chatVersions[id] = version
 		}
-		chatMetas = append(chatMetas, map[string]any{"id": id, "title": fallback(stringField(session, "title"), fallbackTitle), "lastMessagePreview": stringField(session, "lastMessagePreview"), "updatedAt": updatedAt, "createdAt": createdAt})
+		chatMetas = append(chatMetas, map[string]any{
+			"id":                 id,
+			"title":              fallback(stringField(session, "title"), fallbackTitle),
+			"lastMessagePreview": stringField(session, "lastMessagePreview"),
+			// contextTokens 是会话已使用的上下文规模（上游索引摘要里的真值），
+			// 0 表示上游从未给过用量：原样传递，不在投影层估算。
+			"contextTokens": intFromAnyOrZero(session["contextTokens"]),
+			"updatedAt":     updatedAt,
+			"createdAt":     createdAt,
+		})
 		indexUpdatedAt = stableUpdatedAt(indexUpdatedAt, updatedAt)
 	}
 	return map[string]any{"chatIds": chatIDs, "chatUpdatedAt": chatUpdatedAt, "chatVersions": chatVersions, "chatMetas": chatMetas, "updatedAt": indexUpdatedAt}
