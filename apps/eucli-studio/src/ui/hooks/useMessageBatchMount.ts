@@ -226,25 +226,46 @@ export function useMessageBatchMount(options: {
     }
   }, [])
 
+  // 就绪信号（readyKey）只表达「这一版布局已经提交并跨过一帧」，
+  // 与推进的取消代数解耦：页面失活只该停下正在跑的推进，
+  // 不该把已经提交的布局判成失效——否则这一帧被拦下来，
+  // readyKey 就永远为空，历史区批次永远停在队列里（会话只显示尾部几条）。
+  const layoutSessionRef = React.useRef('')
+  const readyFrameRef = React.useRef(0)
+  const armReady = React.useCallback(
+    (session: string) => {
+      if (!session) return
+      if (readyFrameRef.current) return
+      readyFrameRef.current = requestAnimationFrame(() => {
+        readyFrameRef.current = 0
+        // 布局已经换成别的会话：这一帧不再代表那版布局。
+        if (layoutSessionRef.current !== session) return
+        const node = scrollRef.current
+        if (node) node.scrollTop = node.scrollHeight
+        setReadyKey(session)
+      })
+    },
+    [scrollRef],
+  )
+
   React.useLayoutEffect(() => {
     cancelProgression()
-    const epoch = epochRef.current
+    layoutSessionRef.current = sessionKey
     scrollAnchorRef.current = null
     setReadyKey('')
     setState(createMountState(sessionKey, messagesRef.current, initialSize, batchSize))
     const el = scrollRef.current
     if (el) el.scrollTop = el.scrollHeight
-    const frame = requestAnimationFrame(() => {
-      if (epoch !== epochRef.current) return
-      const node = scrollRef.current
-      if (node) node.scrollTop = node.scrollHeight
-      setReadyKey(sessionKey)
-    })
+    armReady(sessionKey)
     return () => {
-      cancelAnimationFrame(frame)
+      if (readyFrameRef.current) {
+        cancelAnimationFrame(readyFrameRef.current)
+        readyFrameRef.current = 0
+      }
+      if (layoutSessionRef.current === sessionKey) layoutSessionRef.current = ''
       cancelProgression()
     }
-  }, [sessionKey, initialSize, batchSize, scrollRef, cancelProgression])
+  }, [sessionKey, initialSize, batchSize, scrollRef, cancelProgression, armReady])
 
   React.useEffect(() => {
     if (state.sessionKey !== sessionKey || state.initialized) return
@@ -333,6 +354,16 @@ export function useMessageBatchMount(options: {
   React.useEffect(() => {
     if (!active) cancelProgression()
   }, [active, cancelProgression])
+
+  // 页面从缓存页回到可见页时补一次就绪信号：
+  // 失活会让推进停下（未揭示的切片退回队列），但「这一版布局已提交」的事实没变，
+  // 重新激活只需要重新放行，不必重建状态。
+  React.useEffect(() => {
+    if (!active) return
+    if (!sessionKey) return
+    if (readyKey === sessionKey) return
+    armReady(sessionKey)
+  }, [active, sessionKey, readyKey, armReady])
 
   React.useEffect(() => {
     if (!active) return

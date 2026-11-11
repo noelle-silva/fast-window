@@ -123,4 +123,39 @@ describe('useMessageBatchMount 的页面门控', () => {
     expect(apiRef.current.batchGroups.every((batch: any) => batch.revealed)).toBe(true)
     expect(yieldToMain).toHaveBeenCalled()
   })
+
+  // 回归：首帧就绪信号只表达「这一版布局已提交」，不能被打断。
+  // 页面挂载时恰好不可调度（缓存页 / 切换瞬间），失活会让推进停下，
+  // 但绝不能让 readyKey 永远为空——否则历史区批次永远停在队列里，
+  // 会话看起来「前面还有内容，但滑不出来」。
+  it('挂载时不可调度，重新激活后仍从原队列推进', async () => {
+    const messages = makeMessages(40)
+    const yieldToMain = vi.fn(immediateYield)
+
+    await act(async () => {
+      root.render(
+        <Harness sessionKey="chat-1" messages={messages} active={false} frameBudget={{ yieldToMain }} apiRef={apiRef} />,
+      )
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(60)
+    })
+    expect(apiRef.current.batchGroups.length).toBe(0)
+    expect(yieldToMain).not.toHaveBeenCalled()
+
+    await act(async () => {
+      root.render(<Harness sessionKey="chat-1" messages={messages} active frameBudget={{ yieldToMain }} apiRef={apiRef} />)
+    })
+
+    for (let frame = 0; frame < 200; frame++) {
+      const batches = apiRef.current.batchGroups
+      if (batches.length === 4 && batches.every((batch: any) => batch.revealed)) break
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(20)
+      })
+    }
+
+    expect(apiRef.current.batchGroups.length).toBe(4)
+    expect(apiRef.current.batchGroups.every((batch: any) => batch.revealed)).toBe(true)
+  })
 })
