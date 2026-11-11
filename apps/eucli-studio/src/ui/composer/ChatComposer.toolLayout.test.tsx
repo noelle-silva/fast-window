@@ -4,6 +4,7 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ChatComposer } from './ChatComposer'
+import { COMPOSER_ACTION_COLUMN_HEIGHT } from './composerActionMetrics'
 import { COMPOSER_TOOL_IDS, normalizeComposerToolsLayout } from '../../domain/composerToolsLayout'
 
 ;(globalThis as any).IS_REACT_ACT_ENVIRONMENT = true
@@ -207,5 +208,46 @@ describe('输入区工具条按布局渲染', () => {
     render(promptInlineLayout(), { activeTargetKind: 'workspace' })
 
     expect(toolbarButtonLabels(host!)).toContain('工作区提示词')
+  })
+
+  describe('底栏动作列', () => {
+    const actionLabels = () => {
+      const actions = host!.querySelector('[data-area="composer-actions"]')
+      if (!actions) return []
+      return Array.from(actions.querySelectorAll('button')).map((node) => String(node.textContent || '').trim())
+    }
+
+    it('把停止按钮竖着叠在发送按钮上方', () => {
+      render(normalizeComposerToolsLayout(undefined), { activeStopRunId: 'run-1' })
+
+      expect(actionLabels()).toEqual(['停止', '发送'])
+    })
+
+    it('没有运行中的回复时只剩发送按钮', () => {
+      render(normalizeComposerToolsLayout(undefined))
+
+      expect(actionLabels()).toEqual(['发送'])
+    })
+
+    it('工具条的高度下限按动作列高度锁死，停止按钮来去都不变', () => {
+      render(normalizeComposerToolsLayout(undefined))
+      const idleMinHeight = window.getComputedStyle(host!.querySelector('[data-area="composer-toolbar"]')!).minHeight
+
+      render(normalizeComposerToolsLayout(undefined), { activeStopRunId: 'run-1' })
+      const busyMinHeight = window.getComputedStyle(host!.querySelector('[data-area="composer-toolbar"]')!).minHeight
+
+      expect(idleMinHeight).toBe(`${COMPOSER_ACTION_COLUMN_HEIGHT}px`)
+      expect(busyMinHeight).toBe(idleMinHeight)
+    })
+
+    // happy-dom 不做真实布局，测不出「三行真的变高了」；这里钉住的是反面条件：
+    // 固定高度、高度上限、裁剪一个都不许出现，否则工具按钮排到第三行就长不出来。
+    it('工具条不设高度上限，行数多了靠内容自己撑高', () => {
+      render(normalizeComposerToolsLayout(undefined))
+      const style = window.getComputedStyle(host!.querySelector('[data-area="composer-toolbar"]')!)
+
+      expect(style.minHeight).toBe(`${COMPOSER_ACTION_COLUMN_HEIGHT}px`)
+      expect([style.height, style.maxHeight, style.overflow]).toEqual(['', '', ''])
+    })
   })
 })
