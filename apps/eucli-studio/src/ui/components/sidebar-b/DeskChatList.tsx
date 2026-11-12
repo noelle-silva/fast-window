@@ -161,13 +161,17 @@ function DeskChatBody(props: {
   running: boolean
   noticeDot: DeskNoticeDotKind | ''
   hoverShowsRoleIcon: boolean
+  /**
+   * 悬停是「行」这一级的语义：状态由行持有，内容只负责读。
+   * 绑在内容容器上会漏掉落在整行上的 mouseover —— 行是容器的父级，事件不会往下传。
+   */
+  hovered?: boolean
   onDismissNotice: () => void
   onOpen: () => void
   onRemove: () => void
   compact?: boolean
 }) {
-  const { entry, active, running, noticeDot, hoverShowsRoleIcon } = props
-  const [hovered, setHovered] = React.useState(false)
+  const { entry, active, running, noticeDot, hoverShowsRoleIcon, hovered = false } = props
 
   const sourceLabel = sessionSourceLabel(entry)
   const contextUsageText = formatContextTokens(entry.contextTokens)
@@ -179,8 +183,6 @@ function DeskChatBody(props: {
 
   return (
     <Box
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
       sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1, minWidth: 0 }}
     >
       <DeskEntryIcon kind={iconKind} image={iconImage} active={active} />
@@ -302,12 +304,17 @@ function SortableChatRow(props: ChatRowProps) {
   // 只留位移，不带缩放：拖拽只该有位移，尺寸由行自己的样式决定。
   const style = { transform: CSS.Translate.toString(transform), transition }
 
+  // 悬停状态挂在行上：鼠标落在整行任何位置都算，内容容器只读这个值。
+  const [hovered, setHovered] = React.useState(false)
+
   return (
     <Tooltip title={sessionSourceLabel(entry)} placement="left">
       <Box
         ref={setNodeRef}
         data-desk-row={rowId}
         style={style}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
         aria-label={entry.title}
         aria-current={active ? 'true' : undefined}
         onContextMenu={props.onContextMenu}
@@ -350,6 +357,7 @@ function SortableChatRow(props: ChatRowProps) {
           running={props.running}
           noticeDot={props.noticeDot}
           hoverShowsRoleIcon={props.hoverShowsRoleIcon}
+          hovered={hovered}
           onDismissNotice={props.onDismissNotice}
           onOpen={props.onOpen}
           onRemove={props.onRemove}
