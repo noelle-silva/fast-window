@@ -5,12 +5,14 @@ import {
   DESK_GROUP_NAME_MAX,
   DESK_GROUP_PRESET_COLORS,
   type DeskGroup,
+  type DeskGroupDisbandPlan,
 } from '../../../domain/desks'
 
 // 分组标签的菜单与对话框。
 //
 // 菜单沿用之前那版：改名、20 色网格、仅解散分组、连组内会话一起移出。
-// 本轮组里还没有内容，所以后两项当前效果相同，等能装会话了再分开。
+// 「会带走多少」由 domain 的 planDeskGroupDisband 算出来传给对话框，
+// 界面不自己描述后果 —— 描述和行为各写各的，迟早对不上。
 
 export type DeskGroupTagMenuState = { mouseX: number; mouseY: number; group: DeskGroup } | null
 
@@ -151,17 +153,20 @@ export function DeskGroupTagRenameDialog(props: {
 }
 
 export function DeskGroupTagRemoveDialog(props: {
-  group: DeskGroup | null
+  plan: DeskGroupDisbandPlan | null
   onClose: () => void
   onConfirm: (groupId: string) => void
 }) {
-  const { group, onClose, onConfirm } = props
+  const { plan, onClose, onConfirm } = props
   return (
-    <DependableDialog open={!!group} onClose={onClose} maxWidth="xs" fullWidth>
+    <DependableDialog open={!!plan} onClose={onClose} maxWidth="xs" fullWidth>
       <DialogTitle>移出桌面？</DialogTitle>
       <DialogContent>
         <Box sx={{ fontSize: 13, color: 'text.secondary', lineHeight: 1.8 }}>
-          分组「{group?.name || ''}」会从工作桌面移除。本轮分组里还没有承载会话，所以不会带走任何东西。
+          分组「{plan?.groupName || ''}」会从工作桌面移除。
+          {plan && plan.leavingChats > 0
+            ? `里面的 ${plan.leavingChats} 条会话也会一起移出，不会留在桌面上。`
+            : '分组里没有会话，不会带走任何东西。'}
         </Box>
       </DialogContent>
       <DialogActions>
@@ -170,8 +175,8 @@ export function DeskGroupTagRemoveDialog(props: {
           color="error"
           variant="contained"
           onClick={() => {
-            if (!group) return
-            onConfirm(group.id)
+            if (!plan) return
+            onConfirm(plan.groupId)
             onClose()
           }}
         >

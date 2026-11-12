@@ -19,7 +19,7 @@ import {
 import { pendingChatForTarget } from '../domain/pendingChat'
 import { writeActiveChatSelection } from '../domain/activeChatSelection'
 import { writeChatListProjection } from '../domain/chatListProjection'
-import { deskFlatRefs } from '../domain/desks'
+import { deskAllRefs } from '../domain/desks'
 import { missingSessionRefScopes } from '../domain/sessionRefScope'
 import { activeBranchHeadMidOrLast } from '../domain/branching'
 import { currentSwitchSpan } from '../domain/switchSpan'
@@ -602,7 +602,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
   async function hydrateStartupChatIndexes() {
     const data = state.data
     if (!data) return false
-    const scopes = missingSessionRefScopes(data, deskFlatRefs(data.desks))
+    const scopes = missingSessionRefScopes(data, deskAllRefs(data.desks))
     if (!scopes.length) return false
     return hydrateSessionIndexScopes(scopes)
   }

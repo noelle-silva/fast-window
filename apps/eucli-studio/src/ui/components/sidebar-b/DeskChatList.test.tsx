@@ -66,9 +66,8 @@ describe('侧边栏 B 会话行', () => {
       root.render(
         <ThemeProvider theme={theme}>
           <DeskChatList
-            entries={entries}
-            groups={[]}
-            rowIds={entries.map((entry) => deskChatRowId(entry.key))}
+            rows={entries.map((entry) => ({ kind: 'chat' as const, rowId: deskChatRowId(entry.key), entry }))}
+            desks={undefined}
             drafts={[]}
             activeChatId=""
             runningChatIds={new Set(runningChatIds)}
@@ -80,6 +79,8 @@ describe('侧边栏 B 会话行', () => {
             onContextMenu={noop}
             onRemoveDraft={noop}
             onMove={noop}
+            onMoveToGroupEnd={noop}
+            onToggleCollapsed={noop}
             onGroupContextMenu={noop}
           />
         </ThemeProvider>,

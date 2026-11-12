@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { refreshScopes } from '../domain/uiRefreshScope'
-import { deskFlatRefs } from '../domain/desks'
+import { deskChatRowId, deskFlatRefs } from '../domain/desks'
 import { addDeskDraft, findDeskDraftByPending, resetDeskDrafts } from '../domain/deskDrafts'
 import { createDeskOperations } from './deskOperations'
 
@@ -47,7 +47,10 @@ describe('工作桌面动作（后端 sessions/desks 那一份）', () => {
     await h.ops.addChatToDesk('role', 'role-a', '', 'chat-1')
     await h.ops.addChatToDesk('workspace', 'ws-1', 'role-b', 'chat-2')
 
-    await h.ops.moveDeskChat('workspace::ws-1::role-b::chat-2', 'role::role-a::::chat-1')
+    await h.ops.moveDeskUnit(
+      deskChatRowId('workspace::ws-1::role-b::chat-2'),
+      deskChatRowId('role::role-a::::chat-1'),
+    )
     expect(deskFlatRefs(h.state.data.desks).map((it: any) => it.chatId)).toEqual(['chat-2', 'chat-1'])
 
     await h.ops.removeChatFromDesk('workspace', 'ws-1', 'role-b', 'chat-2')

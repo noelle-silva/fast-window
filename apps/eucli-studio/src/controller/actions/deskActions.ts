@@ -9,13 +9,19 @@ export function createDeskActions(deps: { deskOps: any }) {
     promoteDeskDraft: (pendingChatId: any, chatId: any) => deskOps.promoteDeskDraft(pendingChatId, chatId),
     removeChatFromDesk: (targetKind: any, targetId: any, roleId: any, chatId: any) =>
       deskOps.removeChatFromDesk(targetKind, targetId, roleId, chatId),
-    moveDeskChat: (activeKey: any, overKey: any) => deskOps.moveDeskChat(activeKey, overKey),
 
-    // 分组：新建 / 改名 / 换色 / 删除 / 与会话混排换位。
+    // 顺序：唯一入口。顶层换位、会话进出分组、组内换序都走它。
+    moveDeskUnit: (activeUnitId: any, overUnitId: any) => deskOps.moveDeskUnit(activeUnitId, overUnitId),
+    // 放进某个分组的末尾：空分组没有成员可压，需要这条单独的路径。
+    moveDeskUnitToGroupEnd: (activeUnitId: any, groupId: any) =>
+      deskOps.moveDeskUnitToGroupEnd(activeUnitId, groupId),
+
+    // 分组：新建 / 改名 / 换色 / 折叠 / 两种解散。
     createDeskGroup: () => deskOps.createDeskGroup(),
     renameDeskGroup: (groupId: any, name: any) => deskOps.renameDeskGroup(groupId, name),
     setDeskGroupColor: (groupId: any, color: any) => deskOps.setDeskGroupColor(groupId, color),
-    removeDeskGroup: (groupId: any) => deskOps.removeDeskGroup(groupId),
-    moveDeskItem: (activeRowId: any, overRowId: any) => deskOps.moveDeskItem(activeRowId, overRowId),
+    toggleDeskGroupCollapsed: (groupId: any) => deskOps.toggleDeskGroupCollapsed(groupId),
+    dissolveDeskGroup: (groupId: any) => deskOps.dissolveDeskGroup(groupId),
+    removeDeskGroupWithChats: (groupId: any) => deskOps.removeDeskGroupWithChats(groupId),
   }
 }

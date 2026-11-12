@@ -223,12 +223,25 @@ export function addDeskRef(desks: SessionDesks, raw: any, index?: number): { des
   return { desks: { items }, added: true }
 }
 
+/** 从桌面上摘掉一条会话引用，顶层和组内成员都算。 */
 export function removeDeskRef(desks: SessionDesks, raw: any): SessionDesks {
   const chat = normalizeFavoriteChatRef(raw) as DeskChatRef | null
   const key = deskChatKey(chat)
   if (!key) return desks
-  const items = desks.items.filter((item) => !(item.type === 'chat' && deskChatKey(item.chat) === key))
-  return items.length === desks.items.length ? desks : { items }
+
+  let touched = false
+  const items = desks.items.flatMap((item): DeskItem[] => {
+    if (item.type === 'chat') {
+      if (deskChatKey(item.chat) !== key) return [item]
+      touched = true
+      return []
+    }
+    const chats = item.group.chats.filter((entry) => deskChatKey(entry) !== key)
+    if (chats.length === item.group.chats.length) return [item]
+    touched = true
+    return [{ type: 'group', group: { ...item.group, chats, updatedAt: now() } }]
+  })
+  return touched ? { items } : desks
 }
 
 // 顶层之间换位：分组项保持原位不动，会话项按新旧位置重排。
@@ -355,33 +368,74 @@ function targetMetaOf(data: any, ref: any) {
   }
 }
 
+/** 解析一条会话引用。顶层和组内成员共用这一份，形状完全一致。 */
+export function resolveDeskEntry(data: any, ref: DeskChatRef): DeskEntry | null {
+  const key = favoriteChatRefKey(ref.targetKind, ref.targetId, ref.roleId, ref.chatId)
+  if (!key) return null
+  const box = chatBoxOf(data, ref)
+  const chat = chatListItemsOfBox(box).find((it: any) => String(it?.id || '') === ref.chatId)
+  const meta = targetMetaOf(data, ref)
+  const status: DeskEntryStatus = chat ? 'loaded' : 'pending'
+  return {
+    targetKind: ref.targetKind,
+    targetId: ref.targetId,
+    roleId: ref.roleId,
+    chatId: ref.chatId,
+    addedAt: Number(ref.addedAt || 0),
+    key,
+    status,
+    title:
+      status === 'loaded'
+        ? String(chat?.title || '').trim() || chatFallbackTitle(ref.targetKind)
+        : SESSION_REF_PENDING_TITLE,
+    targetName: meta.name,
+    roleName: meta.roleName,
+    avatarImage: meta.avatarImage,
+    roleAvatarImage: meta.roleAvatarImage,
+    contextTokens: deskContextTokensOf(box, chat, ref.chatId),
+  }
+}
+
+/** 顶层那条序列的条目。组内成员不在这里，按需用 resolveDeskEntry 单独解析。 */
 export function resolveDeskEntries(data: any, desks: SessionDesks | null | undefined): DeskEntry[] {
   const out: DeskEntry[] = []
   for (const ref of deskFlatRefs(desks)) {
-    const key = favoriteChatRefKey(ref.targetKind, ref.targetId, ref.roleId, ref.chatId)
-    if (!key) continue
-    const box = chatBoxOf(data, ref)
-    const chat = chatListItemsOfBox(box).find((it: any) => String(it?.id || '') === ref.chatId)
-    const meta = targetMetaOf(data, ref)
-    const status: DeskEntryStatus = chat ? 'loaded' : 'pending'
-    out.push({
-      targetKind: ref.targetKind,
-      targetId: ref.targetId,
-      roleId: ref.roleId,
-      chatId: ref.chatId,
-      addedAt: Number(ref.addedAt || 0),
-      key,
-      status,
-      title:
-        status === 'loaded'
-          ? String(chat?.title || '').trim() || chatFallbackTitle(ref.targetKind)
-          : SESSION_REF_PENDING_TITLE,
-      targetName: meta.name,
-      roleName: meta.roleName,
-      avatarImage: meta.avatarImage,
-      roleAvatarImage: meta.roleAvatarImage,
-      contextTokens: deskContextTokensOf(box, chat, ref.chatId),
-    })
+    const entry = resolveDeskEntry(data, ref)
+    if (entry) out.push(entry)
+  }
+  return out
+}
+
+// ---------------------------------------------------------------- 列表结构
+//
+// 列表要渲染的是「单元 + 它挂着的成员」，不是一堆散条目。
+// 这里把后端那份清单翻成渲染层直接能用的形状，界面不再自己拼。
+
+export type DeskChatRowView = { kind: 'chat'; rowId: string; entry: DeskEntry }
+
+export type DeskGroupRowView = {
+  kind: 'group'
+  rowId: string
+  group: DeskGroup
+  chats: DeskChatRowView[]
+}
+
+export type DeskRow = DeskChatRowView | DeskGroupRowView
+
+export function resolveDeskRows(data: any, desks: SessionDesks | null | undefined): DeskRow[] {
+  const out: DeskRow[] = []
+  for (const item of desks?.items || []) {
+    if (item.type === 'chat') {
+      const entry = resolveDeskEntry(data, item.chat)
+      if (entry) out.push({ kind: 'chat', rowId: deskChatRowId(entry.key), entry })
+      continue
+    }
+    const chats: DeskChatRowView[] = []
+    for (const ref of item.group.chats) {
+      const entry = resolveDeskEntry(data, ref)
+      if (entry) chats.push({ kind: 'chat', rowId: deskChatRowId(entry.key), entry })
+    }
+    out.push({ kind: 'group', rowId: deskGroupRowId(item.group.id), group: item.group, chats })
   }
   return out
 }
@@ -512,8 +566,8 @@ export function updateDeskGroup(
   return touched ? { items } : desks
 }
 
-/** 删除分组。本轮分组不承载会话，所以只摘掉这一项。 */
-export function removeDeskGroup(desks: SessionDesks, groupId: unknown): SessionDesks {
+/** 连成员一起移出桌面：组和它肚子里的会话一起消失。 */
+export function removeDeskGroupWithChats(desks: SessionDesks, groupId: unknown): SessionDesks {
   const id = String(groupId || '').trim()
   if (!id) return desks
   const items = desks.items.filter((item) => !(item.type === 'group' && item.group.id === id))
@@ -521,18 +575,228 @@ export function removeDeskGroup(desks: SessionDesks, groupId: unknown): SessionD
 }
 
 /**
- * 顶层换位置：会话与分组共用同一条序列，谁都能跟谁换。
- * 只调顺序，不改归属——把会话放进分组是另一件事。
+ * 解散分组的两种后果。
+ *
+ * 界面要告诉用户的不是「 gruppo 里有没有东西」，而是「这一下会带走多少、留下多少」。
+ * 这份事实只有数据层知道，所以由这里算出来交给界面，界面不再自己拼句子。
+ * 以后再加第三种解散方式，只需要在 mode 上加一项，描述自动跟着对。
  */
-export function moveDeskItem(desks: SessionDesks, activeRowId: string, overRowId: string): SessionDesks {
-  if (!activeRowId || !overRowId || activeRowId === overRowId) return desks
-  const ids = desks.items.map(deskItemRowId)
-  const from = ids.indexOf(activeRowId)
-  const to = ids.indexOf(overRowId)
-  if (from < 0 || to < 0 || from === to) return desks
+export type DeskGroupDisbandMode = 'dissolve' | 'remove-with-chats'
+
+export type DeskGroupDisbandPlan = {
+  mode: DeskGroupDisbandMode
+  groupId: string
+  groupName: string
+  /** 会从桌面消失的会话条数。 */
+  leavingChats: number
+  /** 会保留下来、摊平到组原来位置的会话条数。 */
+  keepingChats: number
+}
+
+export function planDeskGroupDisband(
+  desks: SessionDesks | null | undefined,
+  groupId: unknown,
+  mode: DeskGroupDisbandMode,
+): DeskGroupDisbandPlan | null {
+  const id = String(groupId || '').trim()
+  if (!id) return null
+  const group = findDeskGroup(desks, id)
+  if (!group) return null
+  const total = group.chats.length
+  return {
+    mode,
+    groupId: group.id,
+    groupName: group.name,
+    leavingChats: mode === 'remove-with-chats' ? total : 0,
+    keepingChats: mode === 'dissolve' ? total : 0,
+  }
+}
+
+/** 仅解散分组：组本身消失，成员按原顺序摊平到组原来的位置。 */
+export function dissolveDeskGroup(desks: SessionDesks, groupId: unknown): SessionDesks {
+  const id = String(groupId || '').trim()
+  if (!id) return desks
+  const at = desks.items.findIndex((item) => item.type === 'group' && item.group.id === id)
+  if (at < 0) return desks
+  const target = desks.items[at]
+  if (target.type !== 'group') return desks
+  const flat: DeskItem[] = target.group.chats.map((chat) => ({ type: 'chat', chat }))
   const items = desks.items.slice()
-  const [moved] = items.splice(from, 1)
-  if (!moved) return desks
-  items.splice(to, 0, moved)
+  items.splice(at, 1, ...flat)
   return { items }
+}
+
+/**
+ * 把一个会话放进某个分组的末尾。
+ *
+ * 空分组没有成员可压，指针只能落在成员区那片空白上，
+ * 所以这条路径必须单独存在 —— 它接住的正是「空组」这一种落点。
+ */
+export function moveDeskUnitToGroupEnd(desks: SessionDesks, activeUnitId: string, groupId: unknown): SessionDesks {
+  const id = String(groupId || '').trim()
+  if (!id) return desks
+
+  const parsedActive = parseDeskRowId(activeUnitId)
+  if (!parsedActive || parsedActive.kind !== 'chat') return desks
+
+  const picked = extractDeskUnit(desks, activeUnitId)
+  if (!picked.moved || picked.moved.type !== 'chat') return desks
+  const movedChat = picked.moved.chat
+
+  const at = picked.items.findIndex((item) => item.type === 'group' && item.group.id === id)
+  if (at < 0) return desks
+  const target = picked.items[at]
+  if (target.type !== 'group') return desks
+  if (target.group.chats.some((chat) => deskChatKey(chat) === deskChatKey(movedChat))) return desks
+
+  const chats = [...target.group.chats, movedChat]
+  const items = picked.items.slice()
+  items[at] = { type: 'group', group: { ...target.group, chats, updatedAt: now() } }
+  return { items }
+}
+
+/** 收起 / 展开。折叠只影响成员露不露出来，不改变它在序列里的身份。 */
+export function toggleDeskGroupCollapsed(desks: SessionDesks, groupId: unknown): SessionDesks {
+  const id = String(groupId || '').trim()
+  if (!id) return desks
+  let touched = false
+  const items = desks.items.map((item): DeskItem => {
+    if (item.type !== 'group' || item.group.id !== id) return item
+    touched = true
+    return { type: 'group', group: { ...item.group, collapsed: !item.group.collapsed, updatedAt: now() } }
+  })
+  return touched ? { items } : desks
+}
+
+// ---------------------------------------------------------------- 单元与换位
+//
+// 桌面上的每一项都叫「单元」：一条会话，或者一个分组。
+// 换位的全部规则压在 moveDeskUnit 里 —— 顶层换位、进出分组、组内换序，
+// 走的都是同一条路径，区别只在于「目标单元站在哪一层」。
+
+const DESK_ROOT_CONTAINER = 'root'
+const DESK_GROUP_CONTAINER_PREFIX = 'grp:'
+
+/** 这个单元此刻挂在哪一层：'root' 或 'grp:<组 id>'。 */
+export function deskUnitContainer(desks: SessionDesks | null | undefined, unitId: string): string | null {
+  const parsed = parseDeskRowId(String(unitId || ''))
+  if (!parsed) return null
+  if (parsed.kind === 'group') return DESK_ROOT_CONTAINER
+  for (const item of desks?.items || []) {
+    if (item.type === 'chat' && deskChatKey(item.chat) === parsed.refKey) return DESK_ROOT_CONTAINER
+    if (item.type === 'group' && item.group.chats.some((chat) => deskChatKey(chat) === parsed.refKey)) {
+      return `${DESK_GROUP_CONTAINER_PREFIX}${item.group.id}`
+    }
+  }
+  return null
+}
+
+/**
+ * 把「指针落在谁身上」翻译成「真正要换到哪一层、哪个位置」。
+ *
+ * 分组只能待在顶层，所以目标落在某个组的肚子里时，落点改成那个组本身。
+ */
+function resolveDeskMoveTarget(desks: SessionDesks, activeUnitId: string, overUnitId: string) {
+  const parsedActive = parseDeskRowId(activeUnitId)
+  if (!parsedActive) return null
+
+  let targetId = overUnitId
+  let container = deskUnitContainer(desks, targetId)
+  if (!container) return null
+
+  if (parsedActive.kind === 'group' && container !== DESK_ROOT_CONTAINER) {
+    targetId = deskGroupRowId(container.slice(DESK_GROUP_CONTAINER_PREFIX.length))
+    container = DESK_ROOT_CONTAINER
+  }
+
+  return { targetId, container }
+}
+
+/** 把单元从它所在的层摘出来。组内成员摘出后统一包装成顶层那种形状。 */
+function extractDeskUnit(desks: SessionDesks, unitId: string): { items: DeskItem[]; moved: DeskItem | null } {
+  const parsed = parseDeskRowId(unitId)
+  if (!parsed) return { items: desks.items, moved: null }
+
+  if (parsed.kind === 'group') {
+    const at = desks.items.findIndex((item) => item.type === 'group' && item.group.id === parsed.groupId)
+    if (at < 0) return { items: desks.items, moved: null }
+    const items = desks.items.slice()
+    const [moved] = items.splice(at, 1)
+    return { items, moved: moved || null }
+  }
+
+  for (let index = 0; index < desks.items.length; index += 1) {
+    const item = desks.items[index]
+    if (item.type === 'chat' && deskChatKey(item.chat) === parsed.refKey) {
+      const items = desks.items.slice()
+      const [moved] = items.splice(index, 1)
+      return { items, moved: moved || null }
+    }
+    if (item.type === 'group') {
+      const at = item.group.chats.findIndex((chat) => deskChatKey(chat) === parsed.refKey)
+      if (at < 0) continue
+      const chats = item.group.chats.slice()
+      const [chat] = chats.splice(at, 1)
+      const items = desks.items.slice()
+      items[index] = { type: 'group', group: { ...item.group, chats, updatedAt: now() } }
+      return { items, moved: chat ? { type: 'chat', chat } : null }
+    }
+  }
+
+  return { items: desks.items, moved: null }
+}
+
+function deskUnitIndex(items: DeskItem[], unitId: string, container: string): number {
+  if (container === DESK_ROOT_CONTAINER) return items.findIndex((item) => deskItemRowId(item) === unitId)
+  const groupId = container.slice(DESK_GROUP_CONTAINER_PREFIX.length)
+  const at = items.findIndex((item) => item.type === 'group' && item.group.id === groupId)
+  if (at < 0) return -1
+  const group = items[at]
+  if (group.type !== 'group') return -1
+  return group.group.chats.findIndex((chat) => deskChatRowId(deskChatKey(chat)) === unitId)
+}
+
+function insertDeskUnit(items: DeskItem[], moved: DeskItem, container: string, index: number): DeskItem[] {
+  if (container === DESK_ROOT_CONTAINER) {
+    const next = items.slice()
+    next.splice(index < 0 ? next.length : index, 0, moved)
+    return next
+  }
+
+  const groupId = container.slice(DESK_GROUP_CONTAINER_PREFIX.length)
+  const at = items.findIndex((item) => item.type === 'group' && item.group.id === groupId)
+  if (at < 0) return items
+  // 组里只装会话，不装组。
+  if (moved.type !== 'chat') return items
+
+  const target = items[at]
+  if (target.type !== 'group') return items
+  const chats = target.group.chats.slice()
+  chats.splice(index < 0 ? chats.length : index, 0, moved.chat)
+  const next = items.slice()
+  next[at] = { type: 'group', group: { ...target.group, chats, updatedAt: now() } }
+  return next
+}
+
+/**
+ * 一次换位。
+ *
+ * 落点索引必须在「摘出之前」算：摘出一个单元会让它后面的位置整体前移一位，
+ * 拿摘出后的索引去插，向下拖永远差一格，看起来就像没动。
+ */
+export function moveDeskUnit(desks: SessionDesks, activeUnitId: string, overUnitId: string): SessionDesks {
+  if (!activeUnitId || !overUnitId || activeUnitId === overUnitId) return desks
+
+  const target = resolveDeskMoveTarget(desks, activeUnitId, overUnitId)
+  if (!target) return desks
+  if (activeUnitId === target.targetId) return desks
+
+  const dropIndex = deskUnitIndex(desks.items, target.targetId, target.container)
+  if (dropIndex < 0) return desks
+
+  const picked = extractDeskUnit(desks, activeUnitId)
+  if (!picked.moved) return desks
+
+  const items = insertDeskUnit(picked.items, picked.moved, target.container, dropIndex)
+  return items === picked.items ? desks : { items }
 }

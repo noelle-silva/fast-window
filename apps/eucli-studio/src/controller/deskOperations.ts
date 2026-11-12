@@ -3,13 +3,15 @@ import {
   addDeskRef,
   createDeskGroup as addDeskGroup,
   defaultDesks,
-  moveDeskItem as moveDeskItemInDesks,
-  moveDeskRef,
+  dissolveDeskGroup as dissolveGroup,
+  moveDeskUnit as moveDeskUnitInDesks,
+  moveDeskUnitToGroupEnd as moveDeskUnitToGroupEndInDesks,
   normalizeDesks,
-  removeDeskGroup as dropDeskGroup,
+  removeDeskGroupWithChats as dropGroupWithChats,
   removeDeskRef,
   removeDeskRefsByChatId,
   removeDeskRefsForTarget,
+  toggleDeskGroupCollapsed as toggleGroupCollapsed,
   updateDeskGroup as patchDeskGroup,
   type SessionDesks,
 } from '../domain/desks'
@@ -19,6 +21,9 @@ import type { AiChatShowToast } from '../gateway/capabilities'
 // 工作桌面的动作：与收藏夹同构——读当前数据 → 在副本上改 → 写回后端通道 → 成功才生效。
 // 数据只有后端 sessions/desks.json 那一份；写失败一律不生效，界面不会凭空多出一条。
 // 临时条目（Ctrl 新建会话产生的草稿）只活在客户端内存里，转正时按原位写进这份后端数据。
+//
+// 顺序相关的写操作只有一个入口：moveDeskUnit。
+// 顶层换位、会话进出分组、组内换序，走的都是它。
 export function createDeskOperations(deps: {
   getState: () => any
   save: (desks?: any) => Promise<void>
@@ -38,18 +43,35 @@ export function createDeskOperations(deps: {
     return normalizeDesks(data.desks ?? defaultDesks())
   }
 
-  // 先落后端，写成功才把结果写回内存并通知；失败保持原样，只在提示里说明。
-  async function commit(next: SessionDesks, okText?: string): Promise<boolean> {
+  /**
+   * 写回后端。
+   *
+   * optimistic 用于拖拽这类「手已经松开、画面必须立刻到位」的动作：
+   * 先写内存再落盘，落盘失败连同界面一起回滚。
+   * 其余动作仍然等落盘成功才生效，避免写失败时界面凭空多出一条。
+   */
+  async function commit(next: SessionDesks, okText?: string, options?: { optimistic?: boolean }): Promise<boolean> {
     const data = getState().data
     if (!data) return false
+    const previous = data.desks
+    if (options?.optimistic) {
+      data.desks = next
+      emitDesks()
+    }
     try {
       await save(next)
     } catch (error: any) {
+      if (options?.optimistic) {
+        data.desks = previous
+        emitDesks()
+      }
       showToast?.(String(error?.message || error || '保存工作桌面失败'), { kind: 'error' })
       return false
     }
-    data.desks = next
-    emitDesks()
+    if (!options?.optimistic) {
+      data.desks = next
+      emitDesks()
+    }
     if (okText) showToast?.(okText, { kind: 'success' })
     return true
   }
@@ -74,13 +96,27 @@ export function createDeskOperations(deps: {
       if (!desks) return
       await commit(removeDeskRef(desks, { targetKind, targetId, roleId, chatId }))
     },
-    moveDeskChat: async (activeKey: any, overKey: any) => {
+
+    // ---- 顺序：唯一入口。顶层换位、进出分组、组内换序都是它。
+    // 手一松开就得看到结果，所以这里走乐观落位：先改内存再落盘，失败回滚。
+    moveDeskUnit: async (activeUnitId: any, overUnitId: any) => {
       const desks = currentDesks()
       if (!desks) return
-      await commit(moveDeskRef(desks, String(activeKey || ''), String(overKey || '')))
+      const next = moveDeskUnitInDesks(desks, String(activeUnitId || ''), String(overUnitId || ''))
+      if (next === desks) return
+      await commit(next, undefined, { optimistic: true })
     },
 
-    // ---- 分组：新建 / 改名 / 换色 / 删除 / 与会话混排换位 ----
+    // 放进某个分组的末尾。空分组没有成员可压，指针只能落在成员区那片空白上，靠这条接住。
+    moveDeskUnitToGroupEnd: async (activeUnitId: any, groupId: any) => {
+      const desks = currentDesks()
+      if (!desks) return
+      const next = moveDeskUnitToGroupEndInDesks(desks, String(activeUnitId || ''), String(groupId || ''))
+      if (next === desks) return
+      await commit(next, undefined, { optimistic: true })
+    },
+
+    // ---- 分组：新建 / 改名 / 换色 / 折叠 / 两种解散 ----
     createDeskGroup: async () => {
       const desks = currentDesks()
       if (!desks) return false
@@ -96,19 +132,24 @@ export function createDeskOperations(deps: {
       if (!desks) return false
       return commit(patchDeskGroup(desks, groupId, { color: String(color ?? '') }))
     },
-    removeDeskGroup: async (groupId: any) => {
+    toggleDeskGroupCollapsed: async (groupId: any) => {
       const desks = currentDesks()
       if (!desks) return false
-      return commit(dropDeskGroup(desks, groupId))
+      return commit(toggleGroupCollapsed(desks, groupId))
     },
-    // 顶层换位：会话与分组同一条序列，顺序写回后端。
-    moveDeskItem: async (activeRowId: any, overRowId: any) => {
+    // 仅解散：组没了，成员留在桌面，摊平到组原来的位置。
+    dissolveDeskGroup: async (groupId: any) => {
       const desks = currentDesks()
-      if (!desks) return
-      const next = moveDeskItemInDesks(desks, String(activeRowId || ''), String(overRowId || ''))
-      if (next === desks) return
-      await commit(next)
+      if (!desks) return false
+      return commit(dissolveGroup(desks, groupId))
     },
+    // 连成员一起移出桌面。
+    removeDeskGroupWithChats: async (groupId: any) => {
+      const desks = currentDesks()
+      if (!desks) return false
+      return commit(dropGroupWithChats(desks, groupId))
+    },
+
     // 临时条目转正：草稿会话真实建立、拿到 chatId 后调用。
     // 按草稿当初占的位置插回桌面；写入成功后把内存草稿摘掉。
     promoteDeskDraft: async (pendingChatId: any, chatId: any) => {

@@ -1,12 +1,13 @@
 import * as React from 'react'
 import type { SidebarSide } from '../../domain/sidebarLayout'
 import {
-  deskFlatRefs,
-  deskGroups,
-  deskItemRowId,
-  resolveDeskEntries,
+  deskAllRefs,
+  normalizeDesks,
+  planDeskGroupDisband,
+  resolveDeskRows,
   type DeskEntry,
   type DeskGroup,
+  type DeskGroupDisbandPlan,
 } from '../../domain/desks'
 import { sessionRefScopes } from '../../domain/sessionRefScope'
 import {
@@ -105,23 +106,36 @@ export function SidebarBPanel(props: SidebarBPanelProps) {
   // 面板自己订阅桌面数据域：后端 sessions/desks 变更（增删、清理）就让清单重算；
   // 再按每条引用所在会话列表订阅，改名与会话增删也能跟上。
   const desksVersion = useScopedUiVersion(controller, refreshScopes.entities('desks'))
-  const desks = (data as any)?.desks
-  const flatRefs = React.useMemo(() => deskFlatRefs(desks), [desks, desksVersion])
+  const deskSource = (data as any)?.desks
+  const desks = React.useMemo(() => normalizeDesks(deskSource), [deskSource, desksVersion])
+
+  // 订阅范围把组内成员也算上：组里的会话改名、增删同样要跟上。
+  const allRefs = React.useMemo(() => deskAllRefs(desks), [desks])
   const chatListScopes = React.useMemo(
     () =>
-      flatRefs.map((ref: any) =>
+      allRefs.map((ref: any) =>
         refreshScopes.chatList(
           ref.targetKind,
           ref.targetKind === 'workspace' ? workspaceRoleTargetId(ref.targetId, ref.roleId) : ref.targetId,
         ),
       ),
-    [flatRefs],
+    [allRefs],
   )
   const chatListVersion = useScopedUiVersions(controller, chatListScopes)
-  const deskEntries = React.useMemo(
-    () => resolveDeskEntries(data, desks),
+
+  const deskRows = React.useMemo(
+    () => resolveDeskRows(data, desks),
     [data, desks, desksVersion, chatListVersion],
   )
+  // 通知点、预取这类按「一条引用」处理的地方，需要一份摊平的条目。
+  const deskEntries = React.useMemo(() => {
+    const out: DeskEntry[] = []
+    for (const row of deskRows) {
+      if (row.kind === 'chat') out.push(row.entry)
+      else for (const chat of row.chats) out.push(chat.entry)
+    }
+    return out
+  }, [deskRows])
 
   // 桌面是跨 target 的引用清单：会话标题这类事实不在引用里，得靠各 target 的会话索引。
   // 启动阶段已按桌面引用批量预热过一轮，首帧就是真标题；
@@ -150,15 +164,12 @@ export function SidebarBPanel(props: SidebarBPanelProps) {
   }, [controller, pendingDeskScopes, tab])
   const deskDrafts = useDeskDrafts()
 
-  // 分组标签与混排顺序都来自后端那一份清单：新建、改名、换色、拖拽都写回去。
-  const deskGroupList = React.useMemo(() => deskGroups(desks), [desks, desksVersion])
-  const deskRowIds = React.useMemo(() => {
-    const items = Array.isArray((desks as any)?.items) ? ((desks as any).items as any[]) : []
-    return items.map((item) => deskItemRowId(item))
-  }, [desks, desksVersion])
+  // 分组标签与混排顺序都来自后端那一份清单：新建、改名、换色、折叠、拖拽都写回去。
   const [groupMenu, setGroupMenu] = React.useState<DeskGroupTagMenuState>(null)
   const [renameTarget, setRenameTarget] = React.useState<DeskGroup | null>(null)
-  const [removeTarget, setRemoveTarget] = React.useState<DeskGroup | null>(null)
+  // 移出确认框不带整个 group，只带「这一下会带走多少、留下多少」——
+  // 那份事实由数据层算，界面照着念，不自己描述后果。
+  const [removePlan, setRemovePlan] = React.useState<DeskGroupDisbandPlan | null>(null)
 
   const openGroupMenu = React.useCallback((event: React.MouseEvent, group: DeskGroup) => {
     setGroupMenu({ mouseX: event.clientX, mouseY: event.clientY, group })
@@ -206,9 +217,8 @@ export function SidebarBPanel(props: SidebarBPanelProps) {
         <>
           <DeskToolbar onCreateGroup={() => controller.actions?.createDeskGroup?.()} />
           <DeskChatList
-            entries={deskEntries}
-            groups={deskGroupList}
-            rowIds={deskRowIds}
+            rows={deskRows}
+            desks={desks}
             drafts={deskDrafts}
             activeChatId={activeChatId}
             runningChatIds={runningChatIds}
@@ -219,7 +229,11 @@ export function SidebarBPanel(props: SidebarBPanelProps) {
             onDismissNotice={onDismissDeskNotice}
             onContextMenu={onDeskEntryContextMenu}
             onRemoveDraft={(draft) => removeDeskDraft(draft.pendingChatId)}
-            onMove={(activeRowId, overRowId) => controller.actions?.moveDeskItem?.(activeRowId, overRowId)}
+            onMove={(activeUnitId, overUnitId) => controller.actions?.moveDeskUnit?.(activeUnitId, overUnitId)}
+            onMoveToGroupEnd={(activeUnitId, groupId) =>
+              controller.actions?.moveDeskUnitToGroupEnd?.(activeUnitId, groupId)
+            }
+            onToggleCollapsed={(groupId) => controller.actions?.toggleDeskGroupCollapsed?.(groupId)}
             onGroupContextMenu={openGroupMenu}
           />
 
@@ -228,8 +242,10 @@ export function SidebarBPanel(props: SidebarBPanelProps) {
             onClose={() => setGroupMenu(null)}
             onRename={(group) => setRenameTarget(group)}
             onSetColor={(groupId, color) => controller.actions?.setDeskGroupColor?.(groupId, color)}
-            onRemove={(group) => controller.actions?.removeDeskGroup?.(group.id)}
-            onRemoveWithChats={(group) => setRemoveTarget(group)}
+            onRemove={(group) => controller.actions?.dissolveDeskGroup?.(group.id)}
+            onRemoveWithChats={(group) =>
+              setRemovePlan(planDeskGroupDisband(desks, group.id, 'remove-with-chats'))
+            }
           />
           <DeskGroupTagRenameDialog
             open={!!renameTarget}
@@ -238,9 +254,9 @@ export function SidebarBPanel(props: SidebarBPanelProps) {
             onSubmit={(groupId, name) => controller.actions?.renameDeskGroup?.(groupId, name)}
           />
           <DeskGroupTagRemoveDialog
-            group={removeTarget}
-            onClose={() => setRemoveTarget(null)}
-            onConfirm={(groupId) => controller.actions?.removeDeskGroup?.(groupId)}
+            plan={removePlan}
+            onClose={() => setRemovePlan(null)}
+            onConfirm={(groupId) => controller.actions?.removeDeskGroupWithChats?.(groupId)}
           />
         </>
       ) : (
