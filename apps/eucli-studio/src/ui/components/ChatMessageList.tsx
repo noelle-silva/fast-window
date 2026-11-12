@@ -340,10 +340,12 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
           <Collapse in={expanded} timeout={180} unmountOnExit>
             {workProcessInnerScrollEnabled ? (
               <Box>
+                {/* 这一层自己滚自己的：到底就停住，位移不再传导给外层消息区。
+                    内外两套滚动叠在一起时，滚轮一格上百像素，跨层传递会让节奏忽快忽慢。 */}
                 <CustomScrollArea
                   axis="y"
                   hostSx={{ maxHeight: workProcessInnerScrollHeight }}
-                  scrollSx={{ maxHeight: workProcessInnerScrollHeight, pr: 1 }}
+                  scrollSx={{ maxHeight: workProcessInnerScrollHeight, pr: 1, overscrollBehavior: 'contain' }}
                 >
                   <Stack spacing={1.25} sx={{ pt: 1.25 }}>
                     {revealedFlow.slice(range.start, range.end + 1).map(renderRow)}
