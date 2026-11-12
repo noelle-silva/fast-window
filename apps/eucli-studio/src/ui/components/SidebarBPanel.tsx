@@ -1,6 +1,13 @@
 import * as React from 'react'
 import type { SidebarSide } from '../../domain/sidebarLayout'
-import { deskFlatRefs, resolveDeskEntries, type DeskEntry } from '../../domain/desks'
+import {
+  deskFlatRefs,
+  deskGroups,
+  deskItemRowId,
+  resolveDeskEntries,
+  type DeskEntry,
+  type DeskGroup,
+} from '../../domain/desks'
 import { sessionRefScopes } from '../../domain/sessionRefScope'
 import {
   getDeskDrafts,
@@ -27,18 +34,6 @@ import {
   DeskGroupTagRenameDialog,
   type DeskGroupTagMenuState,
 } from './sidebar-b/DeskGroupTagMenus'
-import {
-  createDeskGroupTag,
-  getDeskGroupTagsState,
-  getDeskGroupTagsVersion,
-  removeDeskGroupTag,
-  renameDeskGroupTag,
-  setDeskGroupTagColor,
-  setDeskRowOrder,
-  subscribeDeskGroupTags,
-  type DeskGroupTag,
-} from '../../domain/deskGroupTags'
-
 // 侧边栏 B：工作桌面 / 会话收藏夹。两段都是会话的去处——
 // 桌面只管把眼下要用的会话摆在手边，收藏夹按收藏夹层级浏览。
 // 外壳与 A 共用 SidebarFrame，顶部切换栏与 A 共用 SidebarTabsHeader。
@@ -52,16 +47,6 @@ const DESK_TABS: readonly SidebarTabItem<DeskSidebarTab>[] = [
 function useDeskDrafts(): DeskDraft[] {
   const version = React.useSyncExternalStore(subscribeDeskDrafts, getDeskDraftsVersion, getDeskDraftsVersion)
   return React.useMemo(() => getDeskDrafts(), [version])
-}
-
-// 分组标签同样是内存态：订阅版本号，再按版本取快照。
-function useDeskGroupTags() {
-  const version = React.useSyncExternalStore(
-    subscribeDeskGroupTags,
-    getDeskGroupTagsVersion,
-    getDeskGroupTagsVersion,
-  )
-  return React.useMemo(() => getDeskGroupTagsState(), [version])
 }
 
 export type SidebarBPanelProps = {
@@ -165,14 +150,17 @@ export function SidebarBPanel(props: SidebarBPanelProps) {
   }, [controller, pendingDeskScopes, tab])
   const deskDrafts = useDeskDrafts()
 
-  // 分组标签与其混排顺序都只在内存里：新建、改名、换色、拖拽都只改这一份，
-  // 进程结束或刷新即消失，这是本轮的预期行为。
-  const deskGroupState = useDeskGroupTags()
+  // 分组标签与混排顺序都来自后端那一份清单：新建、改名、换色、拖拽都写回去。
+  const deskGroupList = React.useMemo(() => deskGroups(desks), [desks, desksVersion])
+  const deskRowIds = React.useMemo(() => {
+    const items = Array.isArray((desks as any)?.items) ? ((desks as any).items as any[]) : []
+    return items.map((item) => deskItemRowId(item))
+  }, [desks, desksVersion])
   const [groupMenu, setGroupMenu] = React.useState<DeskGroupTagMenuState>(null)
-  const [renameTarget, setRenameTarget] = React.useState<DeskGroupTag | null>(null)
-  const [removeTarget, setRemoveTarget] = React.useState<DeskGroupTag | null>(null)
+  const [renameTarget, setRenameTarget] = React.useState<DeskGroup | null>(null)
+  const [removeTarget, setRemoveTarget] = React.useState<DeskGroup | null>(null)
 
-  const openGroupMenu = React.useCallback((event: React.MouseEvent, group: DeskGroupTag) => {
+  const openGroupMenu = React.useCallback((event: React.MouseEvent, group: DeskGroup) => {
     setGroupMenu({ mouseX: event.clientX, mouseY: event.clientY, group })
   }, [])
 
@@ -216,11 +204,11 @@ export function SidebarBPanel(props: SidebarBPanelProps) {
     >
       {tab === 'desk' ? (
         <>
-          <DeskToolbar onCreateGroup={createDeskGroupTag} />
+          <DeskToolbar onCreateGroup={() => controller.actions?.createDeskGroup?.()} />
           <DeskChatList
             entries={deskEntries}
-            groupTags={deskGroupState.groups}
-            rowOrder={deskGroupState.order}
+            groups={deskGroupList}
+            rowIds={deskRowIds}
             drafts={deskDrafts}
             activeChatId={activeChatId}
             runningChatIds={runningChatIds}
@@ -231,7 +219,7 @@ export function SidebarBPanel(props: SidebarBPanelProps) {
             onDismissNotice={onDismissDeskNotice}
             onContextMenu={onDeskEntryContextMenu}
             onRemoveDraft={(draft) => removeDeskDraft(draft.pendingChatId)}
-            onReorder={setDeskRowOrder}
+            onMove={(activeRowId, overRowId) => controller.actions?.moveDeskItem?.(activeRowId, overRowId)}
             onGroupContextMenu={openGroupMenu}
           />
 
@@ -239,20 +227,20 @@ export function SidebarBPanel(props: SidebarBPanelProps) {
             state={groupMenu}
             onClose={() => setGroupMenu(null)}
             onRename={(group) => setRenameTarget(group)}
-            onSetColor={(groupId, color) => setDeskGroupTagColor(groupId, color)}
-            onRemove={(group) => removeDeskGroupTag(group.id)}
+            onSetColor={(groupId, color) => controller.actions?.setDeskGroupColor?.(groupId, color)}
+            onRemove={(group) => controller.actions?.removeDeskGroup?.(group.id)}
             onRemoveWithChats={(group) => setRemoveTarget(group)}
           />
           <DeskGroupTagRenameDialog
             open={!!renameTarget}
             group={renameTarget}
             onClose={() => setRenameTarget(null)}
-            onSubmit={(groupId, name) => renameDeskGroupTag(groupId, name)}
+            onSubmit={(groupId, name) => controller.actions?.renameDeskGroup?.(groupId, name)}
           />
           <DeskGroupTagRemoveDialog
             group={removeTarget}
             onClose={() => setRemoveTarget(null)}
-            onConfirm={(groupId) => removeDeskGroupTag(groupId)}
+            onConfirm={(groupId) => controller.actions?.removeDeskGroup?.(groupId)}
           />
         </>
       ) : (

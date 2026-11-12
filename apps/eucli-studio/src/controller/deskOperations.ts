@@ -1,12 +1,16 @@
 import { refreshScopes } from '../domain/uiRefreshScope'
 import {
   addDeskRef,
+  createDeskGroup as addDeskGroup,
   defaultDesks,
+  moveDeskItem as moveDeskItemInDesks,
   moveDeskRef,
   normalizeDesks,
+  removeDeskGroup as dropDeskGroup,
   removeDeskRef,
   removeDeskRefsByChatId,
   removeDeskRefsForTarget,
+  updateDeskGroup as patchDeskGroup,
   type SessionDesks,
 } from '../domain/desks'
 import { findDeskDraftByPending, removeDeskDraft } from '../domain/deskDrafts'
@@ -74,6 +78,36 @@ export function createDeskOperations(deps: {
       const desks = currentDesks()
       if (!desks) return
       await commit(moveDeskRef(desks, String(activeKey || ''), String(overKey || '')))
+    },
+
+    // ---- 分组：新建 / 改名 / 换色 / 删除 / 与会话混排换位 ----
+    createDeskGroup: async () => {
+      const desks = currentDesks()
+      if (!desks) return false
+      return commit(addDeskGroup(desks))
+    },
+    renameDeskGroup: async (groupId: any, name: any) => {
+      const desks = currentDesks()
+      if (!desks) return false
+      return commit(patchDeskGroup(desks, groupId, { name: String(name ?? '') }))
+    },
+    setDeskGroupColor: async (groupId: any, color: any) => {
+      const desks = currentDesks()
+      if (!desks) return false
+      return commit(patchDeskGroup(desks, groupId, { color: String(color ?? '') }))
+    },
+    removeDeskGroup: async (groupId: any) => {
+      const desks = currentDesks()
+      if (!desks) return false
+      return commit(dropDeskGroup(desks, groupId))
+    },
+    // 顶层换位：会话与分组同一条序列，顺序写回后端。
+    moveDeskItem: async (activeRowId: any, overRowId: any) => {
+      const desks = currentDesks()
+      if (!desks) return
+      const next = moveDeskItemInDesks(desks, String(activeRowId || ''), String(overRowId || ''))
+      if (next === desks) return
+      await commit(next)
     },
     // 临时条目转正：草稿会话真实建立、拿到 chatId 后调用。
     // 按草稿当初占的位置插回桌面；写入成功后把内存草稿摘掉。

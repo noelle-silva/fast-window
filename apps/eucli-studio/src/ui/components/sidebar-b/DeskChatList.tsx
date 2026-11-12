@@ -5,9 +5,8 @@ import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined'
 import GroupsOutlinedIcon from '@mui/icons-material/GroupsOutlined'
 import PersonOutlinedIcon from '@mui/icons-material/PersonOutlined'
 import { colorMixVar } from '../../colorThemeStyles'
-import type { DeskEntry, DeskTargetKind } from '../../../domain/desks'
+import { parseDeskRowId, type DeskEntry, type DeskGroup, type DeskTargetKind } from '../../../domain/desks'
 import type { DeskDraft } from '../../../domain/deskDrafts'
-import { deskGroupTagRowId, type DeskGroupTag } from '../../../domain/deskGroupTags'
 import { formatContextTokens } from '../../../domain/messageMetaLine'
 import { sessionSourceLabel } from '../../../domain/sessionSourceLabel'
 import type { DeskNoticeDotKind } from '../../deskNotice'
@@ -18,7 +17,7 @@ import { DeskGroupTagRow } from './DeskGroupTagRow'
 /** 一条可见行：会话标签或分组标签，两者在列表里地位相同。 */
 type DeskRowView =
   | { kind: 'chat'; id: string; entry: DeskEntry }
-  | { kind: 'group'; id: string; group: DeskGroupTag }
+  | { kind: 'group'; id: string; group: DeskGroup }
 
 // 工作桌面的会话列表：行高、圆角、图标槽、间距与悬停底色沿用侧边栏同一套节奏，
 // 行尾放一个叉，点它只把这条会话从桌面上摘掉，不动会话本体。
@@ -355,8 +354,8 @@ function DeskDraftRow(props: { draft: DeskDraft; onRemove: (draft: DeskDraft) =>
 
 export function DeskChatList(props: {
   entries: DeskEntry[]
-  groupTags: DeskGroupTag[]
-  rowOrder: string[]
+  groups: DeskGroup[]
+  rowIds: string[]
   drafts: DeskDraft[]
   activeChatId: string
   runningChatIds: ReadonlySet<string>
@@ -368,14 +367,14 @@ export function DeskChatList(props: {
   onDismissNotice: (entry: DeskEntry) => void
   onContextMenu: (event: React.MouseEvent, entry: DeskEntry) => void
   onRemoveDraft: (draft: DeskDraft) => void
-  /** 拖完之后的完整顺序：会话用 key，分组用 desk-group:<id>。 */
-  onReorder: (nextOrder: string[]) => void
-  onGroupContextMenu: (event: React.MouseEvent, group: DeskGroupTag) => void
+  /** 拖完直接把两端交给上层，顺序由数据层算并写回后端。 */
+  onMove: (activeRowId: string, overRowId: string) => void
+  onGroupContextMenu: (event: React.MouseEvent, group: DeskGroup) => void
 }) {
   const {
     entries,
-    groupTags,
-    rowOrder,
+    groups,
+    rowIds,
     drafts,
     activeChatId,
     runningChatIds,
@@ -386,45 +385,40 @@ export function DeskChatList(props: {
     onDismissNotice,
     onContextMenu,
     onRemoveDraft,
-    onReorder,
+    onMove,
     onGroupContextMenu,
   } = props
   const clickGuard = useSortableClickGuard()
   const activeId = String(activeChatId || '').trim()
 
-  // 会话与分组合成一条序列：先按 rowOrder 排，没登记过的（新增会话）追加到末尾。
+  // 顺序只认数据层给的那一条：rowIds 就是 desks.items 的行标识序列。
+  // 这里只把标识换成可渲染的事实，不再自己维护顺序。
   const rows = React.useMemo(() => {
-    const byId = new Map<string, DeskRowView>()
-    for (const entry of entries) byId.set(entry.key, { kind: 'chat', id: entry.key, entry })
-    for (const group of groupTags) {
-      const id = deskGroupTagRowId(group.id)
-      byId.set(id, { kind: 'group', id, group })
-    }
+    const entryByKey = new Map(entries.map((entry) => [entry.key, entry]))
+    const groupById = new Map(groups.map((group) => [group.id, group]))
     const out: DeskRowView[] = []
-    for (const id of rowOrder) {
-      const row = byId.get(id)
-      if (!row) continue
-      out.push(row)
-      byId.delete(id)
+    for (const id of rowIds) {
+      const parsed = parseDeskRowId(id)
+      if (!parsed) continue
+      if (parsed.kind === 'group') {
+        const group = groupById.get(parsed.groupId)
+        if (group) out.push({ kind: 'group', id, group })
+        continue
+      }
+      const entry = entryByKey.get(parsed.refKey)
+      if (entry) out.push({ kind: 'chat', id, entry })
     }
-    for (const row of byId.values()) out.push(row)
     return out
-  }, [entries, groupTags, rowOrder])
-  const rowIds = React.useMemo(() => rows.map((row) => row.id), [rows])
+  }, [entries, groups, rowIds])
+  const visibleRowIds = React.useMemo(() => rows.map((row) => row.id), [rows])
 
-  // 排序：两端都在当前序列里才重排，结果交回上层（本轮只落内存）。
+  // 拖拽：端点交给上层，顺序由数据层算并写回（本轮起真的落盘）。
   const handleMove = React.useCallback(
     (activeRowId: string, overRowId: string) => {
-      const from = rowIds.indexOf(activeRowId)
-      const to = rowIds.indexOf(overRowId)
-      if (from < 0 || to < 0 || from === to) return
-      const next = rowIds.slice()
-      const [moved] = next.splice(from, 1)
-      if (!moved) return
-      next.splice(to, 0, moved)
-      onReorder(next)
+      if (activeRowId === overRowId) return
+      onMove(activeRowId, overRowId)
     },
-    [onReorder, rowIds],
+    [onMove],
   )
 
   if (!rows.length && !drafts.length) {
@@ -442,7 +436,7 @@ export function DeskChatList(props: {
       ))}
       {rows.length ? (
       <SortableRoot onMove={handleMove} onDragStart={clickGuard.onDragStart} onDragStop={clickGuard.onDragStop}>
-        <SortableSection items={rowIds}>
+        <SortableSection items={visibleRowIds}>
           {rows.map((row) => (
             <SortableItem key={row.id} id={row.id}>
               {(dragArgs) =>

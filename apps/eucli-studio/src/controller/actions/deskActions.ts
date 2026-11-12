@@ -10,5 +10,12 @@ export function createDeskActions(deps: { deskOps: any }) {
     removeChatFromDesk: (targetKind: any, targetId: any, roleId: any, chatId: any) =>
       deskOps.removeChatFromDesk(targetKind, targetId, roleId, chatId),
     moveDeskChat: (activeKey: any, overKey: any) => deskOps.moveDeskChat(activeKey, overKey),
+
+    // 分组：新建 / 改名 / 换色 / 删除 / 与会话混排换位。
+    createDeskGroup: () => deskOps.createDeskGroup(),
+    renameDeskGroup: (groupId: any, name: any) => deskOps.renameDeskGroup(groupId, name),
+    setDeskGroupColor: (groupId: any, color: any) => deskOps.setDeskGroupColor(groupId, color),
+    removeDeskGroup: (groupId: any) => deskOps.removeDeskGroup(groupId),
+    moveDeskItem: (activeRowId: any, overRowId: any) => deskOps.moveDeskItem(activeRowId, overRowId),
   }
 }

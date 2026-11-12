@@ -4,25 +4,25 @@ import { DependableDialog } from '../DependableOverlay'
 import {
   DESK_GROUP_NAME_MAX,
   DESK_GROUP_PRESET_COLORS,
-  type DeskGroupTag,
-} from '../../../domain/deskGroupTags'
+  type DeskGroup,
+} from '../../../domain/desks'
 
 // 分组标签的菜单与对话框。
 //
 // 菜单沿用之前那版：改名、20 色网格、仅解散分组、连组内会话一起移出。
 // 本轮组里还没有内容，所以后两项当前效果相同，等能装会话了再分开。
 
-export type DeskGroupTagMenuState = { mouseX: number; mouseY: number; group: DeskGroupTag } | null
+export type DeskGroupTagMenuState = { mouseX: number; mouseY: number; group: DeskGroup } | null
 
 const SWATCH = 20
 
 export function DeskGroupTagMenu(props: {
   state: DeskGroupTagMenuState
   onClose: () => void
-  onRename: (group: DeskGroupTag) => void
+  onRename: (group: DeskGroup) => void
   onSetColor: (groupId: string, color: string) => void
-  onRemove: (group: DeskGroupTag) => void
-  onRemoveWithChats: (group: DeskGroupTag) => void
+  onRemove: (group: DeskGroup) => void
+  onRemoveWithChats: (group: DeskGroup) => void
 }) {
   const { state, onClose, onRename, onSetColor, onRemove, onRemoveWithChats } = props
   const group = state?.group
@@ -101,7 +101,7 @@ export function DeskGroupTagMenu(props: {
 
 export function DeskGroupTagRenameDialog(props: {
   open: boolean
-  group: DeskGroupTag | null
+  group: DeskGroup | null
   onClose: () => void
   onSubmit: (groupId: string, name: string) => void
 }) {
@@ -151,7 +151,7 @@ export function DeskGroupTagRenameDialog(props: {
 }
 
 export function DeskGroupTagRemoveDialog(props: {
-  group: DeskGroupTag | null
+  group: DeskGroup | null
   onClose: () => void
   onConfirm: (groupId: string) => void
 }) {

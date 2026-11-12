@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { Box, Typography } from '@mui/material'
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
-import { DESK_GROUP_DEFAULT_COLOR, type DeskGroupTag } from '../../../domain/deskGroupTags'
+import { DESK_GROUP_DEFAULT_COLOR, type DeskGroup } from '../../../domain/desks'
 import type { SortableItemRenderArgs } from '../SortableDnd'
 
 /** 分组标签的行高：约为会话行的 3/5，比会话标签矮一档，一眼能看出它是分组。 */
@@ -23,9 +23,9 @@ export function deskGroupTint(color: string, percent = 22): string {
 }
 
 export type DeskGroupTagRowProps = {
-  group: DeskGroupTag
+  group: DeskGroup
   sortable: SortableItemRenderArgs
-  onContextMenu: (event: React.MouseEvent, group: DeskGroupTag) => void
+  onContextMenu: (event: React.MouseEvent, group: DeskGroup) => void
 }
 
 export function DeskGroupTagRow(props: DeskGroupTagRowProps) {

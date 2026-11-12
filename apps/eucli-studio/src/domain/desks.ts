@@ -56,7 +56,7 @@ export function defaultDesks(): SessionDesks {
 // 分组颜色是受限的样式标记，与后端同一条规则：只收 #hex 或 css 颜色函数。
 const DESK_GROUP_COLOR_MAX = 40
 const DESK_GROUP_COLOR_PATTERN = /^(#[0-9a-fA-F]{3,8}|(hsl|hsla|rgb|rgba)\(\s*[0-9.,%\s]+\))$/
-const DESK_GROUP_NAME_MAX = 60
+export const DESK_GROUP_NAME_MAX = 60
 
 function normalizeDeskGroupColor(value: unknown): string {
   const color = String(value ?? '').trim()
@@ -384,4 +384,155 @@ export function resolveDeskEntries(data: any, desks: SessionDesks | null | undef
     })
   }
   return out
+}
+
+// ---------------------------------------------------------------- 分组与混排
+
+// 分组色板：20 个色相等距的中间饱和色。存的是颜色本身，落地时由界面按主题与纸面混合。
+export const DESK_GROUP_PRESET_COLORS: readonly string[] = Array.from({ length: 20 }, (_item, index) => {
+  const hue = Math.round((360 / 20) * index)
+  return `hsl(${hue}, 58%, 58%)`
+})
+
+export const DESK_GROUP_DEFAULT_COLOR = DESK_GROUP_PRESET_COLORS[0]
+
+const DESK_CHAT_ROW_PREFIX = 'desk-chat:'
+const DESK_GROUP_ROW_PREFIX = 'desk-group:'
+
+// 行标识：列表渲染与拖拽排序共用一把 id。
+// 会话行按引用键区分（同一条会话在桌面上只出现一次），分组行按分组 id 区分。
+export function deskChatRowId(refKey: string): string {
+  return `${DESK_CHAT_ROW_PREFIX}${String(refKey || '')}`
+}
+
+export function deskGroupRowId(groupId: string): string {
+  return `${DESK_GROUP_ROW_PREFIX}${String(groupId || '')}`
+}
+
+export type DeskRowRef = { kind: 'chat'; refKey: string } | { kind: 'group'; groupId: string }
+
+export function parseDeskRowId(value: string): DeskRowRef | null {
+  const raw = String(value || '')
+  if (raw.startsWith(DESK_CHAT_ROW_PREFIX)) {
+    const refKey = raw.slice(DESK_CHAT_ROW_PREFIX.length)
+    return refKey ? { kind: 'chat', refKey } : null
+  }
+  if (raw.startsWith(DESK_GROUP_ROW_PREFIX)) {
+    const groupId = raw.slice(DESK_GROUP_ROW_PREFIX.length)
+    return groupId ? { kind: 'group', groupId } : null
+  }
+  return null
+}
+
+export function deskItemRowId(item: DeskItem): string {
+  return item.type === 'chat' ? deskChatRowId(deskChatKey(item.chat)) : deskGroupRowId(item.group.id)
+}
+
+export function deskGroups(desks: SessionDesks | null | undefined): DeskGroup[] {
+  return (desks?.items || []).flatMap((item) => (item.type === 'group' ? [item.group] : []))
+}
+
+export function findDeskGroup(desks: SessionDesks | null | undefined, groupId: unknown): DeskGroup | null {
+  const id = String(groupId || '').trim()
+  if (!id) return null
+  return deskGroups(desks).find((group) => group.id === id) || null
+}
+
+function resolveNewGroupName(desired: string | undefined, groups: readonly DeskGroup[]): string {
+  const text = String(desired ?? '').replace(/\s+/g, ' ').trim()
+  if (text) return text.length > DESK_GROUP_NAME_MAX ? text.slice(0, DESK_GROUP_NAME_MAX).trim() : text
+  const used = new Set(groups.map((group) => group.name))
+  for (let index = 1; index <= 999; index += 1) {
+    const name = `分组 ${index}`
+    if (!used.has(name)) return name
+  }
+  return '分组'
+}
+
+function nextGroupColor(groups: readonly DeskGroup[]): string {
+  const used = new Set(groups.map((group) => group.color).filter(Boolean))
+  for (const color of DESK_GROUP_PRESET_COLORS) {
+    if (!used.has(color)) return color
+  }
+  return DESK_GROUP_PRESET_COLORS[groups.length % DESK_GROUP_PRESET_COLORS.length] || DESK_GROUP_DEFAULT_COLOR
+}
+
+/** 新建一个分组：追加到清单末尾，名字与颜色取当前没用过的最小值。 */
+export function createDeskGroup(desks: SessionDesks, input: { name?: string; color?: string } = {}): SessionDesks {
+  const groups = deskGroups(desks)
+  const stamp = now()
+  const group: DeskGroup = {
+    id: uid('deskg'),
+    name: resolveNewGroupName(input.name, groups),
+    color: normalizeDeskGroupColor(input.color) || nextGroupColor(groups),
+    collapsed: false,
+    chats: [],
+    createdAt: stamp,
+    updatedAt: stamp,
+  }
+  return { items: [...desks.items, { type: 'group', group }] }
+}
+
+/**
+ * 改名 / 换色。颜色传空串是「清掉已有颜色」，与「没传这个字段」是两件事。
+ * 名字为空时忽略这一项，不写坏数据。
+ */
+export function updateDeskGroup(
+  desks: SessionDesks,
+  groupId: unknown,
+  patch: { name?: string; color?: string },
+): SessionDesks {
+  const id = String(groupId || '').trim()
+  if (!id) return desks
+  let touched = false
+  const items = desks.items.map((item): DeskItem => {
+    if (item.type !== 'group' || item.group.id !== id) return item
+    const next: DeskGroup = { ...item.group }
+    if (typeof patch.name === 'string') {
+      const name = patch.name.replace(/\s+/g, ' ').trim()
+      if (name) {
+        const clipped = name.length > DESK_GROUP_NAME_MAX ? name.slice(0, DESK_GROUP_NAME_MAX).trim() : name
+        if (clipped !== item.group.name) {
+          next.name = clipped
+          touched = true
+        }
+      }
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, 'color')) {
+      const color = normalizeDeskGroupColor(patch.color)
+      if (color !== item.group.color) {
+        next.color = color
+        touched = true
+      }
+    }
+    if (!touched) return item
+    next.updatedAt = now()
+    return { type: 'group', group: next }
+  })
+  return touched ? { items } : desks
+}
+
+/** 删除分组。本轮分组不承载会话，所以只摘掉这一项。 */
+export function removeDeskGroup(desks: SessionDesks, groupId: unknown): SessionDesks {
+  const id = String(groupId || '').trim()
+  if (!id) return desks
+  const items = desks.items.filter((item) => !(item.type === 'group' && item.group.id === id))
+  return items.length === desks.items.length ? desks : { items }
+}
+
+/**
+ * 顶层换位置：会话与分组共用同一条序列，谁都能跟谁换。
+ * 只调顺序，不改归属——把会话放进分组是另一件事。
+ */
+export function moveDeskItem(desks: SessionDesks, activeRowId: string, overRowId: string): SessionDesks {
+  if (!activeRowId || !overRowId || activeRowId === overRowId) return desks
+  const ids = desks.items.map(deskItemRowId)
+  const from = ids.indexOf(activeRowId)
+  const to = ids.indexOf(overRowId)
+  if (from < 0 || to < 0 || from === to) return desks
+  const items = desks.items.slice()
+  const [moved] = items.splice(from, 1)
+  if (!moved) return desks
+  items.splice(to, 0, moved)
+  return { items }
 }

@@ -5,7 +5,7 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ThemeProvider } from '@mui/material'
 import { getColorThemeColors, resolveColorThemePreview } from '../../../domain/colorTheme'
-import type { DeskEntry } from '../../../domain/desks'
+import { deskChatRowId, type DeskEntry } from '../../../domain/desks'
 import { createStudioMuiTheme } from '../../colorThemeStyles'
 import type { DeskNoticeDotKind } from '../../deskNotice'
 import { DeskChatList } from './DeskChatList'
@@ -67,8 +67,8 @@ describe('侧边栏 B 会话行', () => {
         <ThemeProvider theme={theme}>
           <DeskChatList
             entries={entries}
-            groupTags={[]}
-            rowOrder={[]}
+            groups={[]}
+            rowIds={entries.map((entry) => deskChatRowId(entry.key))}
             drafts={[]}
             activeChatId=""
             runningChatIds={new Set(runningChatIds)}
@@ -79,7 +79,7 @@ describe('侧边栏 B 会话行', () => {
             onDismissNotice={options.onDismissNotice || noop}
             onContextMenu={noop}
             onRemoveDraft={noop}
-            onReorder={noop}
+            onMove={noop}
             onGroupContextMenu={noop}
           />
         </ThemeProvider>,
