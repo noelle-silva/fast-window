@@ -1,12 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { DESK_ROOT_FOLDER_ID, normalizeDesks, resolveDeskEntries } from './desks'
+import { normalizeDesks, resolveDeskEntries } from './desks'
 import { SESSION_REF_PENDING_TITLE } from './sessionRefPlaceholder'
 
 function desksOf(refs: any[]) {
-  return normalizeDesks({
-    folders: [{ id: DESK_ROOT_FOLDER_ID, name: '桌面', parentId: '', createdAt: 1, updatedAt: 1 }],
-    chatRefsByFolderId: { [DESK_ROOT_FOLDER_ID]: refs },
-  })
+  return normalizeDesks({ items: refs.map((chat) => ({ type: 'chat', chat })) })
 }
 
 function ref(targetKind: 'role' | 'group' | 'workspace', targetId: string, roleId: string, chatId: string) {
@@ -110,5 +107,47 @@ describe('工作桌面条目的上下文用量', () => {
   it('两处都没有真值时是 0，不估算', () => {
     const entries = resolveDeskEntries(dataOf(), desksOf([ref('role', 'role-a', '', 'chat-1')]))
     expect(entries[0].contextTokens).toBe(0)
+  })
+})
+
+describe('工作桌面的数据结构', () => {
+  it('认当前的有序条目清单', () => {
+    const desks = desksOf([ref('role', 'role-a', '', 'chat-1'), ref('role', 'role-a', '', 'chat-2')])
+    expect(desks.items.map((item) => (item.type === 'chat' ? item.chat.chatId : ''))).toEqual(['chat-1', 'chat-2'])
+  })
+
+  it('读到旧版两层结构时摊平：根收藏夹的会话回到顶层，其余收藏夹变成分组', () => {
+    const desks = normalizeDesks({
+      folders: [
+        { id: 'desk-root', name: '桌面', parentId: '', createdAt: 1, updatedAt: 1 },
+        { id: 'deskf-1', name: '重要', parentId: '', createdAt: 2, updatedAt: 2 },
+      ],
+      chatRefsByFolderId: {
+        'desk-root': [ref('role', 'role-a', '', 'top-1')],
+        'deskf-1': [ref('role', 'role-a', '', 'in-1')],
+      },
+    })
+    expect(desks.items.map((item) => item.type)).toEqual(['chat', 'group'])
+  })
+
+  it('分组数据原样保留，不会被顶层渲染带走', () => {
+    const desks = normalizeDesks({
+      items: [
+        { type: 'chat', chat: ref('role', 'role-a', '', 'top-1') },
+        {
+          type: 'group',
+          group: {
+            id: 'g1',
+            name: '分组 1',
+            color: 'hsl(210, 58%, 58%)',
+            chats: [ref('role', 'role-a', '', 'in-1')],
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        },
+      ],
+    })
+    expect(resolveDeskEntries(dataOf(), desks).map((entry) => entry.chatId)).toEqual(['top-1'])
+    expect(desks.items).toHaveLength(2)
   })
 })

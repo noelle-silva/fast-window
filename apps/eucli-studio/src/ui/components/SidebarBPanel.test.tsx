@@ -5,7 +5,7 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { ThemeProvider } from '@mui/material'
 import { getColorThemeColors, resolveColorThemePreview } from '../../domain/colorTheme'
-import { DESK_ROOT_FOLDER_ID, normalizeDesks } from '../../domain/desks'
+import { normalizeDesks } from '../../domain/desks'
 import { addDeskDraft, resetDeskDrafts } from '../../domain/deskDrafts'
 import { SESSION_REF_PENDING_TITLE } from '../../domain/sessionRefPlaceholder'
 import { createStudioMuiTheme } from '../colorThemeStyles'
@@ -25,10 +25,7 @@ const wsRef = deskRef({ targetKind: 'workspace', targetId: 'ws-1', roleId: 'role
 // 面板自己从后端那份 desks 数据装配条目，测试给的是数据本身。
 function deskData(refs: any[] = [deskRef(), wsRef]) {
   return {
-    desks: normalizeDesks({
-      folders: [{ id: DESK_ROOT_FOLDER_ID, name: '桌面', parentId: '', createdAt: 1, updatedAt: 1 }],
-      chatRefsByFolderId: { [DESK_ROOT_FOLDER_ID]: refs },
-    }),
+    desks: normalizeDesks({ items: refs.map((chat) => ({ type: 'chat', chat })) }),
     roles: [
       { id: 'role-a', name: '甲角色' },
       { id: 'role-b', name: '乙角色', avatarImage: 'role-avatar-src' },

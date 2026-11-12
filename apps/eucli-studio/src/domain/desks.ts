@@ -1,25 +1,44 @@
-import { now } from '../core/utils'
+import { now, uid } from '../core/utils'
 import { chatListItemsOfBox } from './chatListOrdering'
-import { favoriteChatRefKey, normalizeFavoriteChatRef, normalizeFavoriteFolder } from './favorites'
+import { favoriteChatRefKey, normalizeFavoriteChatRef } from './favorites'
 import { latestContextTokens, normalizeMessageContextTokens } from './message'
 import { SESSION_REF_PENDING_TITLE } from './sessionRefPlaceholder'
 import { sessionRefBox, sessionRefIdentity } from './sessionRefScope'
 import { workspaceIconImageSrc } from './workspaceIcon'
 
-// 工作桌面：后端 eucli-box 里的 sessions/desks.json（类型 SessionDesks），
-// 与会话收藏夹（sessions/favorites.json / SessionFavorites）逐字段同构，但两类数据各自独立。
-// 客户端只负责读写这一份数据，不另存副本：增删改之后写回同一条存储通道。
-// 眼下的用法是平铺——所有引用挂在一个固定的根收藏夹下；结构本身支持层级，用的时候加收藏夹即可。
-
-export const DESK_ROOT_FOLDER_ID = 'desk-root'
-export const DESK_ROOT_FOLDER_NAME = '桌面'
+// 工作桌面：后端 eucli-box 里的 sessions/desks.json（类型 SessionDesks）。
+//
+// 事实是一条有序清单：每一项要么是一条会话引用，要么是一个分组。
+// 客户端只读写这一份数据，不另存副本：改完写回同一条存储通道。
+//
+// 旧版是两层结构（folders + chatRefsByFolderId），读取时一次性摊平迁移，写入只产出 items。
+// 分组数据会原样读进来、原样写回去，但这版界面还只显示顶层的会话项。
 
 export type DeskTargetKind = 'role' | 'group' | 'workspace'
 
-export type SessionDesks = {
-  folders: any[]
-  chatRefsByFolderId: Record<string, any[]>
+export type DeskChatRef = {
+  targetKind: DeskTargetKind
+  targetId: string
+  roleId: string
+  chatId: string
+  addedAt: number
 }
+
+export type DeskGroup = {
+  id: string
+  name: string
+  color: string
+  collapsed: boolean
+  chats: DeskChatRef[]
+  createdAt: number
+  updatedAt: number
+}
+
+export type DeskItem =
+  | { type: 'chat'; chat: DeskChatRef }
+  | { type: 'group'; group: DeskGroup }
+
+export type SessionDesks = { items: DeskItem[] }
 
 // 桌面条目的悬停换图标开关属于客户端外观偏好，跟着设置走，不进后端数据。
 export const DESK_HOVER_ROLE_ICON_SETTING_KEY = 'deskHoverShowsRoleIcon'
@@ -31,168 +50,219 @@ export function normalizeDeskHoverRoleIcon(raw: unknown): boolean {
 }
 
 export function defaultDesks(): SessionDesks {
-  return { folders: [], chatRefsByFolderId: {} }
+  return { items: [] }
 }
 
-// 归一化：与收藏夹同一套规则（收藏夹去重、父子关系自愈、引用校验与去重）。
+// 分组颜色是受限的样式标记，与后端同一条规则：只收 #hex 或 css 颜色函数。
+const DESK_GROUP_COLOR_MAX = 40
+const DESK_GROUP_COLOR_PATTERN = /^(#[0-9a-fA-F]{3,8}|(hsl|hsla|rgb|rgba)\(\s*[0-9.,%\s]+\))$/
+const DESK_GROUP_NAME_MAX = 60
+
+function normalizeDeskGroupColor(value: unknown): string {
+  const color = String(value ?? '').trim()
+  if (!color || color.length > DESK_GROUP_COLOR_MAX || !DESK_GROUP_COLOR_PATTERN.test(color)) return ''
+  return color
+}
+
+/**
+ * 归一化工作桌面。
+ *
+ * 认两种形态：
+ *   - items            当前形态，唯一事实
+ *   - folders + refs   旧版形态，读到时一次性摊平
+ * 判断依据是「字段在不在」，不是「空不空」——空清单是合法的空桌面。
+ */
 export function normalizeDesks(raw: any): SessionDesks {
   const src = raw && typeof raw === 'object' ? raw : {}
-  const folders0 = Array.isArray((src as any).folders) ? (src as any).folders : []
-  const folders: any[] = []
-  const folderIdSet = new Set<string>()
-  for (const it of folders0) {
-    const f = normalizeFavoriteFolder(it)
-    if (!f.id || folderIdSet.has(f.id)) continue
-    folderIdSet.add(f.id)
-    folders.push(f)
-    if (folders.length >= 1000) break
-  }
+  const items = Array.isArray((src as any).items)
+    ? normalizeDeskItems((src as any).items)
+    : migrateLegacyDesks(src)
+  return { items }
+}
 
-  const parentMap = new Map<string, string>()
-  for (const f of folders) parentMap.set(String(f.id || ''), String(f.parentId || ''))
-  for (const f of folders) {
-    const pid = String(f.parentId || '').trim()
-    if (!pid || !folderIdSet.has(pid) || pid === String(f.id || '')) {
-      f.parentId = ''
+const LEGACY_DESK_ROOT_FOLDER_ID = 'desk-root'
+
+function migrateLegacyDesks(src: any): DeskItem[] {
+  const folders = Array.isArray(src?.folders) ? src.folders : []
+  const refsByFolder = src?.chatRefsByFolderId && typeof src.chatRefsByFolderId === 'object' ? src.chatRefsByFolderId : {}
+  const items: DeskItem[] = []
+  const seen = new Set<string>()
+
+  for (const folder of folders) {
+    if (!folder || typeof folder !== 'object') continue
+    const folderId = String((folder as any).id || '').trim()
+    if (!folderId) continue
+    const refs = Array.isArray(refsByFolder[folderId]) ? refsByFolder[folderId] : []
+
+    if (folderId === LEGACY_DESK_ROOT_FOLDER_ID) {
+      for (const raw of refs) {
+        const chat = takeDeskChat(raw, seen)
+        if (chat) items.push({ type: 'chat', chat })
+      }
       continue
     }
-    const seen = new Set<string>([String(f.id || '')])
-    let cur = pid
-    let ok = true
-    while (cur) {
-      if (!folderIdSet.has(cur) || seen.has(cur)) {
-        ok = false
-        break
-      }
-      seen.add(cur)
-      cur = String(parentMap.get(cur) || '').trim()
-    }
-    if (!ok) f.parentId = ''
-  }
 
-  const refs0 =
-    (src as any).chatRefsByFolderId && typeof (src as any).chatRefsByFolderId === 'object'
-      ? (src as any).chatRefsByFolderId
-      : {}
-  const chatRefsByFolderId: Record<string, any[]> = {}
-  for (const f of folders) {
-    const fid = String(f.id || '')
-    const list0 = Array.isArray((refs0 as any)[fid]) ? (refs0 as any)[fid] : []
-    const list: any[] = []
-    const seen = new Set<string>()
-    for (const it of list0) {
-      const ref = normalizeFavoriteChatRef(it)
-      if (!ref) continue
-      const key = favoriteChatRefKey(ref.targetKind, ref.targetId, ref.roleId, ref.chatId)
-      if (!key || seen.has(key)) continue
-      seen.add(key)
-      list.push(ref)
-      if (list.length >= 5000) break
-    }
-    chatRefsByFolderId[fid] = list
+    const group = normalizeDeskGroup({ ...(folder as any), chats: refs }, seen)
+    if (group) items.push({ type: 'group', group })
   }
-
-  return { folders, chatRefsByFolderId }
+  return items
 }
 
-// 平铺用法需要一个根收藏夹承载引用；第一次写入时补上，之后原样复用。
-export function ensureDeskRoot(desks: SessionDesks): SessionDesks {
-  if (desks.folders.some((f) => String(f?.id || '') === DESK_ROOT_FOLDER_ID)) {
-    const next = {
-      ...desks,
-      chatRefsByFolderId: {
-        ...desks.chatRefsByFolderId,
-        [DESK_ROOT_FOLDER_ID]: Array.isArray(desks.chatRefsByFolderId[DESK_ROOT_FOLDER_ID])
-          ? desks.chatRefsByFolderId[DESK_ROOT_FOLDER_ID]
-          : [],
-      },
+function normalizeDeskItems(rawItems: any[]): DeskItem[] {
+  const items: DeskItem[] = []
+  const seen = new Set<string>()
+
+  for (const raw of rawItems) {
+    if (!raw || typeof raw !== 'object') continue
+    const type = String((raw as any).type || '').trim()
+
+    if (type === 'chat') {
+      const chat = takeDeskChat((raw as any).chat, seen)
+      if (chat) items.push({ type: 'chat', chat })
+      continue
     }
-    return next
+
+    if (type === 'group') {
+      const group = normalizeDeskGroup((raw as any).group, seen)
+      if (group) items.push({ type: 'group', group })
+    }
   }
-  const t = now()
+  return items
+}
+
+/** 归一化一条会话引用；已出现过的引用直接丢掉，保证桌面上一条会话只有一处。 */
+function takeDeskChat(raw: any, seen: Set<string>): DeskChatRef | null {
+  const chat = normalizeFavoriteChatRef(raw) as DeskChatRef | null
+  if (!chat) return null
+  const key = deskChatKey(chat)
+  if (!key || seen.has(key)) return null
+  seen.add(key)
+  return chat
+}
+
+function normalizeDeskGroup(raw: any, seen: Set<string>): DeskGroup | null {
+  if (!raw || typeof raw !== 'object') return null
+
+  const id = String((raw as any).id || '').trim() || uid('deskg')
+  let name = String((raw as any).name || '').replace(/\s+/g, ' ').trim()
+  if (!name) name = '分组'
+  if (name.length > DESK_GROUP_NAME_MAX) name = name.slice(0, DESK_GROUP_NAME_MAX).trim() || '分组'
+
+  const createdAt = Number((raw as any).createdAt || 0) || now()
+  const updatedAt = Number((raw as any).updatedAt || 0) || createdAt
+  const rawChats = Array.isArray((raw as any).chats) ? (raw as any).chats : []
+  const chats: DeskChatRef[] = []
+  for (const item of rawChats) {
+    const chat = takeDeskChat(item, seen)
+    if (chat) chats.push(chat)
+  }
+
   return {
-    folders: [
-      { id: DESK_ROOT_FOLDER_ID, name: DESK_ROOT_FOLDER_NAME, parentId: '', createdAt: t, updatedAt: t },
-      ...desks.folders,
-    ],
-    chatRefsByFolderId: { ...desks.chatRefsByFolderId, [DESK_ROOT_FOLDER_ID]: [] },
+    id,
+    name,
+    color: normalizeDeskGroupColor((raw as any).color),
+    collapsed: (raw as any).collapsed === true,
+    chats,
+    createdAt,
+    updatedAt,
   }
 }
 
-// 顶层清单：眼下桌面就是根收藏夹下这一串引用。
-export function deskFlatRefs(desks: SessionDesks | null | undefined): any[] {
-  const list = Array.isArray(desks?.chatRefsByFolderId?.[DESK_ROOT_FOLDER_ID])
-    ? desks!.chatRefsByFolderId[DESK_ROOT_FOLDER_ID]
-    : []
-  const out: any[] = []
-  for (const item of list) {
-    const ref = normalizeFavoriteChatRef(item)
-    if (ref) out.push(ref)
+export function deskChatKey(ref: DeskChatRef | null | undefined): string {
+  if (!ref) return ''
+  return favoriteChatRefKey(ref.targetKind, ref.targetId, ref.roleId, ref.chatId)
+}
+
+// ---------------------------------------------------------------- 读取
+
+/** 桌面上平铺的那一串会话：只取顶层条目，分组里的成员不在这里。 */
+export function deskFlatRefs(desks: SessionDesks | null | undefined): DeskChatRef[] {
+  const out: DeskChatRef[] = []
+  for (const item of desks?.items || []) {
+    if (item.type === 'chat') out.push(item.chat)
   }
   return out
 }
 
-export function setDeskFlatRefs(desks: SessionDesks, refs: readonly any[]): SessionDesks {
-  const withRoot = ensureDeskRoot(desks)
-  return {
-    ...withRoot,
-    chatRefsByFolderId: { ...withRoot.chatRefsByFolderId, [DESK_ROOT_FOLDER_ID]: [...refs] },
+/** 桌面上全部会话引用，含分组里的成员。清理类动作用它，避免漏掉组内条目。 */
+export function deskAllRefs(desks: SessionDesks | null | undefined): DeskChatRef[] {
+  const out: DeskChatRef[] = []
+  for (const item of desks?.items || []) {
+    if (item.type === 'chat') out.push(item.chat)
+    else out.push(...item.group.chats)
   }
+  return out
 }
 
+// ---------------------------------------------------------------- 原子动作
+
 // index 省略时追加到末尾；给出时插在该位置（临时条目转正靠它保住原位）。
+// index 指的是「第几条顶层会话」，分组项不参与计数。
 export function addDeskRef(desks: SessionDesks, raw: any, index?: number): { desks: SessionDesks; added: boolean } {
-  const ref = normalizeFavoriteChatRef(raw)
-  const withRoot = ensureDeskRoot(desks)
-  if (!ref) return { desks: withRoot, added: false }
-  const refs = deskFlatRefs(withRoot)
-  const key = favoriteChatRefKey(ref.targetKind, ref.targetId, ref.roleId, ref.chatId)
-  if (refs.some((it) => favoriteChatRefKey(it.targetKind, it.targetId, it.roleId, it.chatId) === key)) {
-    return { desks: withRoot, added: false }
+  const chat = normalizeFavoriteChatRef(raw) as DeskChatRef | null
+  if (!chat) return { desks, added: false }
+  const key = deskChatKey(chat)
+  if (!key || deskAllRefs(desks).some((item) => deskChatKey(item) === key)) {
+    return { desks, added: false }
   }
-  const next = refs.slice()
-  const at = typeof index === 'number' && isFinite(index) ? Math.max(0, Math.min(Math.floor(index), next.length)) : next.length
-  next.splice(at, 0, ref)
-  return { desks: setDeskFlatRefs(withRoot, next), added: true }
+
+  const items = desks.items.slice()
+  const chatPositions: number[] = []
+  items.forEach((item, position) => {
+    if (item.type === 'chat') chatPositions.push(position)
+  })
+
+  const at =
+    typeof index === 'number' && isFinite(index)
+      ? index < chatPositions.length
+        ? chatPositions[Math.max(0, Math.floor(index))]
+        : items.length
+      : items.length
+
+  items.splice(at, 0, { type: 'chat', chat })
+  return { desks: { items }, added: true }
 }
 
 export function removeDeskRef(desks: SessionDesks, raw: any): SessionDesks {
-  const ref = normalizeFavoriteChatRef(raw)
-  const withRoot = ensureDeskRoot(desks)
-  if (!ref) return withRoot
-  const key = favoriteChatRefKey(ref.targetKind, ref.targetId, ref.roleId, ref.chatId)
-  return setDeskFlatRefs(
-    withRoot,
-    deskFlatRefs(withRoot).filter(
-      (it) => favoriteChatRefKey(it.targetKind, it.targetId, it.roleId, it.chatId) !== key,
-    ),
-  )
+  const chat = normalizeFavoriteChatRef(raw) as DeskChatRef | null
+  const key = deskChatKey(chat)
+  if (!key) return desks
+  const items = desks.items.filter((item) => !(item.type === 'chat' && deskChatKey(item.chat) === key))
+  return items.length === desks.items.length ? desks : { items }
 }
 
+// 顶层之间换位：分组项保持原位不动，会话项按新旧位置重排。
 export function moveDeskRef(desks: SessionDesks, activeKey: string, overKey: string): SessionDesks {
-  const withRoot = ensureDeskRoot(desks)
-  const refs = deskFlatRefs(withRoot)
-  const from = refs.findIndex((it) => favoriteChatRefKey(it.targetKind, it.targetId, it.roleId, it.chatId) === String(activeKey || ''))
-  const to = refs.findIndex((it) => favoriteChatRefKey(it.targetKind, it.targetId, it.roleId, it.chatId) === String(overKey || ''))
-  if (from < 0 || to < 0 || from === to) return withRoot
-  const next = refs.slice()
-  const [moved] = next.splice(from, 1)
-  next.splice(to, 0, moved)
-  return setDeskFlatRefs(withRoot, next)
+  const items = desks.items.slice()
+  const from = items.findIndex((item) => item.type === 'chat' && deskChatKey(item.chat) === String(activeKey || ''))
+  const to = items.findIndex((item) => item.type === 'chat' && deskChatKey(item.chat) === String(overKey || ''))
+  if (from < 0 || to < 0 || from === to) return desks
+  const [moved] = items.splice(from, 1)
+  if (!moved) return desks
+  items.splice(to, 0, moved)
+  return { items }
 }
 
-function mapAllRefs(desks: SessionDesks, map: (refs: any[]) => any[]): SessionDesks {
-  const next: Record<string, any[]> = {}
-  for (const folderId of Object.keys(desks.chatRefsByFolderId || {})) {
-    next[folderId] = map(Array.isArray(desks.chatRefsByFolderId[folderId]) ? desks.chatRefsByFolderId[folderId] : [])
-  }
-  return { ...desks, chatRefsByFolderId: next }
+function mapAllRefs(desks: SessionDesks, keep: (ref: DeskChatRef) => boolean): SessionDesks {
+  let touched = false
+  const items = desks.items.flatMap((item): DeskItem[] => {
+    if (item.type === 'chat') {
+      if (keep(item.chat)) return [item]
+      touched = true
+      return []
+    }
+    const chats = item.group.chats.filter(keep)
+    if (chats.length === item.group.chats.length) return [item]
+    touched = true
+    return [{ type: 'group', group: { ...item.group, chats, updatedAt: now() } }]
+  })
+  return touched ? { items } : desks
 }
 
 export function removeDeskRefsByChatId(desks: SessionDesks, chatId: unknown): SessionDesks {
   const cid = String(chatId || '').trim()
   if (!cid) return desks
-  return mapAllRefs(desks, (refs) => refs.filter((it: any) => String(it?.chatId || '') !== cid))
+  return mapAllRefs(desks, (chat) => String(chat.chatId || '') !== cid)
 }
 
 export function removeDeskRefsForTarget(desks: SessionDesks, targetKind: unknown, targetId: unknown): SessionDesks {
@@ -200,9 +270,7 @@ export function removeDeskRefsForTarget(desks: SessionDesks, targetKind: unknown
   const kind = kindText === 'group' ? 'group' : kindText === 'workspace' ? 'workspace' : 'role'
   const tid = String(targetId || '').trim()
   if (!tid) return desks
-  return mapAllRefs(desks, (refs) =>
-    refs.filter((it: any) => !(String(it?.targetKind || '').trim() === kind && String(it?.targetId || '').trim() === tid)),
-  )
+  return mapAllRefs(desks, (chat) => !(chat.targetKind === kind && chat.targetId === tid))
 }
 
 // 桌面条目：引用 + 渲染所需的标题、来源与头像（会话本体可能还没加载，标题从索引取）。

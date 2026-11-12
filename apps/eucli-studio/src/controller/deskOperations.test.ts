@@ -26,7 +26,7 @@ describe('工作桌面动作（后端 sessions/desks 那一份）', () => {
     expect(deskFlatRefs(h.state.data.desks).map((it: any) => it.chatId)).toEqual(['chat-1'])
     expect(h.save).toHaveBeenCalledTimes(1)
     expect(h.emitScope.mock.calls.every((call) => call[0] === refreshScopes.entities('desks'))).toBe(true)
-    expect(h.state.data.desks.folders.map((f: any) => f.id)).toContain('desk-root')
+    expect(h.state.data.desks.items).toHaveLength(1)
   })
 
   it('重复添加只提示，不重复写盘', async () => {
