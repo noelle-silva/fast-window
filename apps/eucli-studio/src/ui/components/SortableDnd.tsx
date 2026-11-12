@@ -516,7 +516,11 @@ export function SortableItem(props: SortableItemProps) {
   const isDropCandidate = !!activeId && isDropMode && !!drop?.canDrop(activeId, targetId)
   const isDropTarget = isDropCandidate && overTargetId === targetId
 
-  const transformText = CSS.Transform.toString(transform) ?? ''
+  // 只保留位移，剥掉缩放：dnd-kit 会按「行高一致」的前提给元素附一个竖向拉伸补偿，
+  // 碰到比会话行矮的分组标签时，29 会被拉成 48，看起来像拖拽中突然变胖。
+  // 拖拽只应该有位移，元素尺寸一律由它自己的样式决定。
+  const transformText =
+    CSS.Transform.toString(transform ? { x: transform.x, y: transform.y, scaleX: 1, scaleY: 1 } : null) ?? ''
   // 位移登记放在提交之后：onDragEnd 抓快照时读到的仍是拖拽中的那份值。
   React.useLayoutEffect(() => {
     trackItemTransform(id, transformText)
