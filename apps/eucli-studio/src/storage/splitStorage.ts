@@ -652,10 +652,12 @@ export function createSplitStorage(deps: {
   }
 
   // 工作桌面：与收藏夹同一条存储通道模式，各写各的键。
-  async function saveDesksOnly() {
+  // 允许调用方直接交一份待落盘的副本：动作层是「先落后端、成功才替换内存」，
+  // 只读内存里的 state 会把上一版再写一遍，跳过参数就等于丢掉这次改动。
+  async function saveDesksOnly(nextDesks?: any) {
     const state = getState?.()
     if (!state?.data) return
-    const desks = normalizeDesks((state.data as any).desks)
+    const desks = normalizeDesks(nextDesks === undefined ? (state.data as any).desks : nextDesks)
     const run = () => storage.set(SESSION_DESKS_KEY, desks)
     const next = sessionDesksWriteChain.then(run, run)
     sessionDesksWriteChain = next.then(
