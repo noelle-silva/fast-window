@@ -29,6 +29,10 @@ const STAGING_MESSAGE_BATCH_SX = {
   pointerEvents: 'none',
 } as const
 
+// 开内部滚动时整块收窄到 4/5 并居中：
+// 框子比没开时窄一圈，滚动手感上更像一段嵌在消息流里的过程，不跟整页抢宽度。
+const WORK_PROCESS_INNER_SCROLL_WIDTH = '80%'
+
 type ChatMessageListProps = {
   controller: any
   messageBatchGroups?: MessageBatchGroup[]
@@ -334,6 +338,7 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
             overflow: 'hidden',
             bgcolor: 'color-mix(in srgb, var(--studio-primary) 10%, transparent)',
             boxShadow: 'var(--studio-shadow-soft)',
+            ...(workProcessInnerScrollEnabled ? { width: WORK_PROCESS_INNER_SCROLL_WIDTH, mx: 'auto' } : null),
           }}
         >
           {toolProcessBar('start', range, expanded, active, onToggle)}
