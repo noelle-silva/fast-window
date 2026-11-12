@@ -7,11 +7,18 @@ import PersonOutlinedIcon from '@mui/icons-material/PersonOutlined'
 import { colorMixVar } from '../../colorThemeStyles'
 import type { DeskEntry, DeskTargetKind } from '../../../domain/desks'
 import type { DeskDraft } from '../../../domain/deskDrafts'
+import { deskGroupTagRowId, type DeskGroupTag } from '../../../domain/deskGroupTags'
 import { formatContextTokens } from '../../../domain/messageMetaLine'
 import { sessionSourceLabel } from '../../../domain/sessionSourceLabel'
 import type { DeskNoticeDotKind } from '../../deskNotice'
 import { SortableItem, SortableRoot, SortableSection } from '../SortableDnd'
 import { useSortableClickGuard } from '../useSortableClickGuard'
+import { DeskGroupTagRow } from './DeskGroupTagRow'
+
+/** 一条可见行：会话标签或分组标签，两者在列表里地位相同。 */
+type DeskRowView =
+  | { kind: 'chat'; id: string; entry: DeskEntry }
+  | { kind: 'group'; id: string; group: DeskGroupTag }
 
 // 工作桌面的会话列表：行高、圆角、图标槽、间距与悬停底色沿用侧边栏同一套节奏，
 // 行尾放一个叉，点它只把这条会话从桌面上摘掉，不动会话本体。
@@ -348,6 +355,8 @@ function DeskDraftRow(props: { draft: DeskDraft; onRemove: (draft: DeskDraft) =>
 
 export function DeskChatList(props: {
   entries: DeskEntry[]
+  groupTags: DeskGroupTag[]
+  rowOrder: string[]
   drafts: DeskDraft[]
   activeChatId: string
   runningChatIds: ReadonlySet<string>
@@ -357,12 +366,16 @@ export function DeskChatList(props: {
   onOpen: (entry: DeskEntry) => void
   onRemove: (entry: DeskEntry) => void
   onDismissNotice: (entry: DeskEntry) => void
-  onMove: (activeKey: string, overKey: string) => void
   onContextMenu: (event: React.MouseEvent, entry: DeskEntry) => void
   onRemoveDraft: (draft: DeskDraft) => void
+  /** 拖完之后的完整顺序：会话用 key，分组用 desk-group:<id>。 */
+  onReorder: (nextOrder: string[]) => void
+  onGroupContextMenu: (event: React.MouseEvent, group: DeskGroupTag) => void
 }) {
   const {
     entries,
+    groupTags,
+    rowOrder,
     drafts,
     activeChatId,
     runningChatIds,
@@ -371,15 +384,50 @@ export function DeskChatList(props: {
     onOpen,
     onRemove,
     onDismissNotice,
-    onMove,
     onContextMenu,
     onRemoveDraft,
+    onReorder,
+    onGroupContextMenu,
   } = props
   const clickGuard = useSortableClickGuard()
-  const keys = React.useMemo(() => entries.map((it) => it.key), [entries])
   const activeId = String(activeChatId || '').trim()
 
-  if (!entries.length && !drafts.length) {
+  // 会话与分组合成一条序列：先按 rowOrder 排，没登记过的（新增会话）追加到末尾。
+  const rows = React.useMemo(() => {
+    const byId = new Map<string, DeskRowView>()
+    for (const entry of entries) byId.set(entry.key, { kind: 'chat', id: entry.key, entry })
+    for (const group of groupTags) {
+      const id = deskGroupTagRowId(group.id)
+      byId.set(id, { kind: 'group', id, group })
+    }
+    const out: DeskRowView[] = []
+    for (const id of rowOrder) {
+      const row = byId.get(id)
+      if (!row) continue
+      out.push(row)
+      byId.delete(id)
+    }
+    for (const row of byId.values()) out.push(row)
+    return out
+  }, [entries, groupTags, rowOrder])
+  const rowIds = React.useMemo(() => rows.map((row) => row.id), [rows])
+
+  // 排序：两端都在当前序列里才重排，结果交回上层（本轮只落内存）。
+  const handleMove = React.useCallback(
+    (activeRowId: string, overRowId: string) => {
+      const from = rowIds.indexOf(activeRowId)
+      const to = rowIds.indexOf(overRowId)
+      if (from < 0 || to < 0 || from === to) return
+      const next = rowIds.slice()
+      const [moved] = next.splice(from, 1)
+      if (!moved) return
+      next.splice(to, 0, moved)
+      onReorder(next)
+    },
+    [onReorder, rowIds],
+  )
+
+  if (!rows.length && !drafts.length) {
     return (
       <Box sx={LIST_SX}>
         <Typography sx={{ px: 0.75, py: 0.5, fontSize: 12, color: 'text.disabled' }}>桌面上还没有会话</Typography>
@@ -392,26 +440,30 @@ export function DeskChatList(props: {
       {drafts.map((draft) => (
         <DeskDraftRow key={draft.pendingChatId} draft={draft} onRemove={onRemoveDraft} />
       ))}
-      {entries.length ? (
-      <SortableRoot onMove={onMove} onDragStart={clickGuard.onDragStart} onDragStop={clickGuard.onDragStop}>
-        <SortableSection items={keys}>
-          {entries.map((entry) => (
-            <SortableItem key={entry.key} id={entry.key}>
-              {(dragArgs) => (
-                <DeskRow
-                  entry={entry}
-                  active={!!activeId && entry.chatId === activeId}
-                  running={runningChatIds.has(entry.chatId)}
-                  noticeDot={noticeDotByKey[entry.key] || ''}
-                  hoverShowsRoleIcon={hoverShowsRoleIcon}
-                  dragArgs={dragArgs}
-                  shouldIgnoreClick={clickGuard.shouldIgnoreClick}
-                  onOpen={onOpen}
-                  onRemove={onRemove}
-                  onDismissNotice={onDismissNotice}
-                  onContextMenu={onContextMenu}
-                />
-              )}
+      {rows.length ? (
+      <SortableRoot onMove={handleMove} onDragStart={clickGuard.onDragStart} onDragStop={clickGuard.onDragStop}>
+        <SortableSection items={rowIds}>
+          {rows.map((row) => (
+            <SortableItem key={row.id} id={row.id}>
+              {(dragArgs) =>
+                row.kind === 'group' ? (
+                  <DeskGroupTagRow group={row.group} sortable={dragArgs} onContextMenu={onGroupContextMenu} />
+                ) : (
+                  <DeskRow
+                    entry={row.entry}
+                    active={!!activeId && row.entry.chatId === activeId}
+                    running={runningChatIds.has(row.entry.chatId)}
+                    noticeDot={noticeDotByKey[row.entry.key] || ''}
+                    hoverShowsRoleIcon={hoverShowsRoleIcon}
+                    dragArgs={dragArgs}
+                    shouldIgnoreClick={clickGuard.shouldIgnoreClick}
+                    onOpen={onOpen}
+                    onRemove={onRemove}
+                    onDismissNotice={onDismissNotice}
+                    onContextMenu={onContextMenu}
+                  />
+                )
+              }
             </SortableItem>
           ))}
         </SortableSection>

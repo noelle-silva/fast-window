@@ -1375,14 +1375,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     [clearChatSessionRunNotice],
   )
 
-  // 桌面内拖动：按引用键换位，顺序写回同一份清单。
-  const moveDeskEntry = React.useCallback(
-    (activeKey: string, overKey: string) => {
-      controller.actions.moveDeskChat?.(activeKey, overKey)
-    },
-    [controller],
-  )
-
   // 桌面条目的右键与会话列表同一个菜单：把引用折成菜单认的目标标识再交给它。
   const onDeskEntryContextMenu = React.useCallback(
     (event: React.MouseEvent, entry: DeskEntry) => {
@@ -1529,7 +1521,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
       onOpenDeskEntry: openDeskEntry,
       onRemoveDeskEntry: removeDeskEntry,
       onDismissDeskNotice: dismissDeskEntryNotice,
-      onMoveDeskEntry: moveDeskEntry,
       onDeskEntryContextMenu,
     }),
     [
@@ -1553,7 +1544,6 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
       openDeskEntry,
       removeDeskEntry,
       dismissDeskEntryNotice,
-      moveDeskEntry,
       onDeskEntryContextMenu,
     ],
   )

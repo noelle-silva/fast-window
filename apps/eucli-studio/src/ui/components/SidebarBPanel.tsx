@@ -20,6 +20,24 @@ import { SidebarFrame } from './SidebarFrame'
 import { SidebarTabsHeader, type SidebarTabItem } from './SidebarTabsHeader'
 import { FavoriteFoldersBrowser, type FavoriteFoldersBrowserProps } from './favorites/FavoriteFoldersBrowser'
 import { DeskChatList } from './sidebar-b/DeskChatList'
+import { DeskToolbar } from './sidebar-b/DeskToolbar'
+import {
+  DeskGroupTagMenu,
+  DeskGroupTagRemoveDialog,
+  DeskGroupTagRenameDialog,
+  type DeskGroupTagMenuState,
+} from './sidebar-b/DeskGroupTagMenus'
+import {
+  createDeskGroupTag,
+  getDeskGroupTagsState,
+  getDeskGroupTagsVersion,
+  removeDeskGroupTag,
+  renameDeskGroupTag,
+  setDeskGroupTagColor,
+  setDeskRowOrder,
+  subscribeDeskGroupTags,
+  type DeskGroupTag,
+} from '../../domain/deskGroupTags'
 
 // 侧边栏 B：工作桌面 / 会话收藏夹。两段都是会话的去处——
 // 桌面只管把眼下要用的会话摆在手边，收藏夹按收藏夹层级浏览。
@@ -34,6 +52,16 @@ const DESK_TABS: readonly SidebarTabItem<DeskSidebarTab>[] = [
 function useDeskDrafts(): DeskDraft[] {
   const version = React.useSyncExternalStore(subscribeDeskDrafts, getDeskDraftsVersion, getDeskDraftsVersion)
   return React.useMemo(() => getDeskDrafts(), [version])
+}
+
+// 分组标签同样是内存态：订阅版本号，再按版本取快照。
+function useDeskGroupTags() {
+  const version = React.useSyncExternalStore(
+    subscribeDeskGroupTags,
+    getDeskGroupTagsVersion,
+    getDeskGroupTagsVersion,
+  )
+  return React.useMemo(() => getDeskGroupTagsState(), [version])
 }
 
 export type SidebarBPanelProps = {
@@ -60,7 +88,6 @@ export type SidebarBPanelProps = {
   onOpenDeskEntry: (entry: DeskEntry) => void
   onRemoveDeskEntry: (entry: DeskEntry) => void
   onDismissDeskNotice: (entry: DeskEntry) => void
-  onMoveDeskEntry: (activeKey: string, overKey: string) => void
   onDeskEntryContextMenu: (event: React.MouseEvent, entry: DeskEntry) => void
 }
 
@@ -87,7 +114,6 @@ export function SidebarBPanel(props: SidebarBPanelProps) {
     onOpenDeskEntry,
     onRemoveDeskEntry,
     onDismissDeskNotice,
-    onMoveDeskEntry,
     onDeskEntryContextMenu,
   } = props
 
@@ -139,6 +165,17 @@ export function SidebarBPanel(props: SidebarBPanelProps) {
   }, [controller, pendingDeskScopes, tab])
   const deskDrafts = useDeskDrafts()
 
+  // 分组标签与其混排顺序都只在内存里：新建、改名、换色、拖拽都只改这一份，
+  // 进程结束或刷新即消失，这是本轮的预期行为。
+  const deskGroupState = useDeskGroupTags()
+  const [groupMenu, setGroupMenu] = React.useState<DeskGroupTagMenuState>(null)
+  const [renameTarget, setRenameTarget] = React.useState<DeskGroupTag | null>(null)
+  const [removeTarget, setRemoveTarget] = React.useState<DeskGroupTag | null>(null)
+
+  const openGroupMenu = React.useCallback((event: React.MouseEvent, group: DeskGroupTag) => {
+    setGroupMenu({ mouseX: event.clientX, mouseY: event.clientY, group })
+  }, [])
+
   // 通知点按桌面引用键落表：条目一旦挪位置 / 增删，跟着桌面清单重算。
   // 正在看的会话不画点——提醒的意义在于「不在眼前」，切走时运行通知那边也会销账。
   const noticeDotByKey = React.useMemo(() => {
@@ -178,20 +215,46 @@ export function SidebarBPanel(props: SidebarBPanelProps) {
       }
     >
       {tab === 'desk' ? (
-        <DeskChatList
-          entries={deskEntries}
-          activeChatId={activeChatId}
-          runningChatIds={runningChatIds}
-          noticeDotByKey={noticeDotByKey}
-          hoverShowsRoleIcon={hoverShowsRoleIcon}
-          onOpen={onOpenDeskEntry}
-          onRemove={onRemoveDeskEntry}
-          onDismissNotice={onDismissDeskNotice}
-          onMove={onMoveDeskEntry}
-          onContextMenu={onDeskEntryContextMenu}
-          drafts={deskDrafts}
-          onRemoveDraft={(draft) => removeDeskDraft(draft.pendingChatId)}
-        />
+        <>
+          <DeskToolbar onCreateGroup={createDeskGroupTag} />
+          <DeskChatList
+            entries={deskEntries}
+            groupTags={deskGroupState.groups}
+            rowOrder={deskGroupState.order}
+            drafts={deskDrafts}
+            activeChatId={activeChatId}
+            runningChatIds={runningChatIds}
+            noticeDotByKey={noticeDotByKey}
+            hoverShowsRoleIcon={hoverShowsRoleIcon}
+            onOpen={onOpenDeskEntry}
+            onRemove={onRemoveDeskEntry}
+            onDismissNotice={onDismissDeskNotice}
+            onContextMenu={onDeskEntryContextMenu}
+            onRemoveDraft={(draft) => removeDeskDraft(draft.pendingChatId)}
+            onReorder={setDeskRowOrder}
+            onGroupContextMenu={openGroupMenu}
+          />
+
+          <DeskGroupTagMenu
+            state={groupMenu}
+            onClose={() => setGroupMenu(null)}
+            onRename={(group) => setRenameTarget(group)}
+            onSetColor={(groupId, color) => setDeskGroupTagColor(groupId, color)}
+            onRemove={(group) => removeDeskGroupTag(group.id)}
+            onRemoveWithChats={(group) => setRemoveTarget(group)}
+          />
+          <DeskGroupTagRenameDialog
+            open={!!renameTarget}
+            group={renameTarget}
+            onClose={() => setRenameTarget(null)}
+            onSubmit={(groupId, name) => renameDeskGroupTag(groupId, name)}
+          />
+          <DeskGroupTagRemoveDialog
+            group={removeTarget}
+            onClose={() => setRemoveTarget(null)}
+            onConfirm={(groupId) => removeDeskGroupTag(groupId)}
+          />
+        </>
       ) : (
         <FavoriteFoldersBrowser {...favoritesBrowser} />
       )}

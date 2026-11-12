@@ -67,6 +67,8 @@ describe('侧边栏 B 会话行', () => {
         <ThemeProvider theme={theme}>
           <DeskChatList
             entries={entries}
+            groupTags={[]}
+            rowOrder={[]}
             drafts={[]}
             activeChatId=""
             runningChatIds={new Set(runningChatIds)}
@@ -75,9 +77,10 @@ describe('侧边栏 B 会话行', () => {
             onOpen={options.onOpen || noop}
             onRemove={noop}
             onDismissNotice={options.onDismissNotice || noop}
-            onMove={noop}
             onContextMenu={noop}
             onRemoveDraft={noop}
+            onReorder={noop}
+            onGroupContextMenu={noop}
           />
         </ThemeProvider>,
       )

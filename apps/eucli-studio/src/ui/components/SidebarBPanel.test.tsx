@@ -85,7 +85,6 @@ function createProps(overrides: Partial<React.ComponentProps<typeof SidebarBPane
     onOpenDeskEntry: noop,
     onRemoveDeskEntry: noop,
     onDismissDeskNotice: noop,
-    onMoveDeskEntry: noop,
     onDeskEntryContextMenu: noop,
     ...overrides,
   }
