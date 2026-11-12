@@ -5,6 +5,7 @@ import {
   normalizeWorkProcessDisplayMode,
   normalizeWorkProcessInnerScrollEnabled,
   normalizeWorkProcessInnerScrollHeight,
+  normalizeWorkProcessInnerScrollWidth,
   workProcessExpandedByMode,
 } from './workProcessDisplay'
 
@@ -41,5 +42,16 @@ describe('工作过程显示设置', () => {
     expect(normalizeWorkProcessInnerScrollHeight(100)).toBe(200)
     expect(normalizeWorkProcessInnerScrollHeight(5000)).toBe(1200)
     expect(normalizeWorkProcessInnerScrollHeight(640)).toBe(640)
+  })
+
+  it('宽度按百分比收敛，缺省取 85%，越界钳到上下限', () => {
+    expect(normalizeWorkProcessInnerScrollWidth(undefined)).toBe(85)
+    expect(normalizeWorkProcessInnerScrollWidth('乱写')).toBe(85)
+    expect(normalizeWorkProcessInnerScrollWidth(10)).toBe(60)
+    expect(normalizeWorkProcessInnerScrollWidth(180)).toBe(100)
+    expect(normalizeWorkProcessInnerScrollWidth(65)).toBe(65)
+    // 100 表示不收窄，是合法值而不是越界。
+    expect(normalizeWorkProcessInnerScrollWidth(100)).toBe(100)
+    expect(normalizeWorkProcessInnerScrollWidth(72.6)).toBe(73)
   })
 })

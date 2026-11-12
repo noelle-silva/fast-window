@@ -29,10 +29,6 @@ const STAGING_MESSAGE_BATCH_SX = {
   pointerEvents: 'none',
 } as const
 
-// 开内部滚动时整块收窄到 4/5 并居中：
-// 框子比没开时窄一圈，滚动手感上更像一段嵌在消息流里的过程，不跟整页抢宽度。
-const WORK_PROCESS_INNER_SCROLL_WIDTH = '80%'
-
 type ChatMessageListProps = {
   controller: any
   messageBatchGroups?: MessageBatchGroup[]
@@ -57,9 +53,10 @@ type ChatMessageListProps = {
   // 工作过程缩略显示：开关决定是否渲染统计块，档位决定默认展开状态。
   workProcessDisplayEnabled: boolean
   workProcessDisplayMode: WorkProcessDisplayMode
-  // 展开内容内部滚动：开启后按高度上限滚动，不把整页撑长。
+  // 展开内容内部滚动：开启后按高度上限滚动，不把整页撑长；宽度按百分比收窄。
   workProcessInnerScrollEnabled: boolean
   workProcessInnerScrollHeight: number
+  workProcessInnerScrollWidth: number
   stickersEnabled: boolean
   stickerMap: any
   renderSafetyPolicyKey: string
@@ -123,6 +120,7 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
     workProcessDisplayMode,
     workProcessInnerScrollEnabled,
     workProcessInnerScrollHeight,
+    workProcessInnerScrollWidth,
     stickersEnabled,
     stickerMap,
     renderSafetyPolicyKey,
@@ -338,7 +336,8 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
             overflow: 'hidden',
             bgcolor: 'color-mix(in srgb, var(--studio-primary) 10%, transparent)',
             boxShadow: 'var(--studio-shadow-soft)',
-            ...(workProcessInnerScrollEnabled ? { width: WORK_PROCESS_INNER_SCROLL_WIDTH, mx: 'auto' } : null),
+            // 开内部滚动时整块按设置收窄并居中（上下限见 domain/workProcessDisplay）。
+            ...(workProcessInnerScrollEnabled ? { width: `${workProcessInnerScrollWidth}%`, mx: 'auto' } : null),
           }}
         >
           {toolProcessBar('start', range, expanded, active, onToggle)}
@@ -371,7 +370,7 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
     }
     for (let index = cursor; index < revealedFlow.length; index++) rows.push(renderRow(revealedFlow[index]))
     return rows
-  }, [revealedFlow, renderRow, manualExpanded, toggleToolProcess, workProcessDisplayEnabled, workProcessDisplayMode, workProcessInnerScrollEnabled, workProcessInnerScrollHeight])
+  }, [revealedFlow, renderRow, manualExpanded, toggleToolProcess, workProcessDisplayEnabled, workProcessDisplayMode, workProcessInnerScrollEnabled, workProcessInnerScrollHeight, workProcessInnerScrollWidth])
 
   return (
     <Stack spacing={1.25} useFlexGap sx={{ position: 'relative' }}>

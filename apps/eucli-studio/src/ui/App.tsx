@@ -60,6 +60,7 @@ import {
   normalizeWorkProcessDisplayMode,
   normalizeWorkProcessInnerScrollEnabled,
   normalizeWorkProcessInnerScrollHeight,
+  normalizeWorkProcessInnerScrollWidth,
 } from '../domain/workProcessDisplay'
 import { normalizeMessageOffscreenSkipEnabled } from '../domain/messageOffscreen'
 import { normalizeSessionKeepAliveLimit } from '../domain/sessionKeepAlive'
@@ -196,6 +197,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const workProcessDisplayMode = normalizeWorkProcessDisplayMode(data?.settings?.workProcessDisplayMode)
   const workProcessInnerScrollEnabled = normalizeWorkProcessInnerScrollEnabled(data?.settings?.workProcessInnerScrollEnabled)
   const workProcessInnerScrollHeight = normalizeWorkProcessInnerScrollHeight(data?.settings?.workProcessInnerScrollHeight)
+  const workProcessInnerScrollWidth = normalizeWorkProcessInnerScrollWidth(data?.settings?.workProcessInnerScrollWidth)
   const messageOffscreenSkipEnabled = normalizeMessageOffscreenSkipEnabled(data?.settings?.messageOffscreenSkipEnabled)
   const sessionKeepAliveLimit = normalizeSessionKeepAliveLimit((data?.settings as any)?.sessionKeepAliveLimit)
   const stickersEnabled = !!data?.settings?.stickers?.enabled
@@ -789,6 +791,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     workProcessDisplayEnabled ? 1 : 0,
     workProcessDisplayMode,
     workProcessInnerScrollEnabled ? workProcessInnerScrollHeight : 0,
+    workProcessInnerScrollEnabled ? workProcessInnerScrollWidth : 0,
     renderSafetyPolicy,
     stickersEnabled ? `stickers:${Object.keys(stickerMap || {}).length}` : 'stickers:off',
     treeOpen && effectiveTreeView === 'right' ? `tree:${Math.round(treePanelW)}` : 'tree:off',
@@ -1696,6 +1699,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     workProcessDisplayMode,
     workProcessInnerScrollEnabled,
     workProcessInnerScrollHeight,
+    workProcessInnerScrollWidth,
     stickersEnabled,
     stickerMap,
     renderSafetyPolicyKey: renderSafetyPolicy,
@@ -1734,6 +1738,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     workProcessDisplayMode,
     workProcessInnerScrollEnabled,
     workProcessInnerScrollHeight,
+    workProcessInnerScrollWidth,
     stickersEnabled,
     stickerMap,
     renderSafetyPolicy,

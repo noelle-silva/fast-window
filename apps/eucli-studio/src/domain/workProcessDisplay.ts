@@ -52,3 +52,19 @@ export function normalizeWorkProcessInnerScrollHeight(raw: unknown): number {
     Math.max(WORK_PROCESS_INNER_SCROLL_HEIGHT_MIN, value),
   )
 }
+
+// 展开内容内部滚动的宽度：按占消息流可用宽度的百分比算，只在开启内部滚动时生效。
+// 100 表示不收窄；下限留 60，再窄工具卡片会被挤成竖条，反而不好读。
+export const DEFAULT_WORK_PROCESS_INNER_SCROLL_WIDTH = 85
+export const WORK_PROCESS_INNER_SCROLL_WIDTH_MIN = 60
+export const WORK_PROCESS_INNER_SCROLL_WIDTH_MAX = 100
+export const WORK_PROCESS_INNER_SCROLL_WIDTH_STEP = 5
+
+export function normalizeWorkProcessInnerScrollWidth(raw: unknown): number {
+  const value = Math.round(Number(raw))
+  if (!Number.isFinite(value)) return DEFAULT_WORK_PROCESS_INNER_SCROLL_WIDTH
+  return Math.min(
+    WORK_PROCESS_INNER_SCROLL_WIDTH_MAX,
+    Math.max(WORK_PROCESS_INNER_SCROLL_WIDTH_MIN, value),
+  )
+}

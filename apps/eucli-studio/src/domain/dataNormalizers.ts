@@ -32,6 +32,7 @@ import {
   normalizeWorkProcessDisplayMode,
   normalizeWorkProcessInnerScrollEnabled,
   normalizeWorkProcessInnerScrollHeight,
+  normalizeWorkProcessInnerScrollWidth,
 } from './workProcessDisplay'
 import { normalizeMessageOffscreenSkipEnabled } from './messageOffscreen'
 import { normalizeSessionKeepAliveLimit } from './sessionKeepAlive'
@@ -223,6 +224,7 @@ export function normalizeData(raw: any) {
   ;(d.settings as any).workProcessDisplayMode = normalizeWorkProcessDisplayMode((d.settings as any).workProcessDisplayMode)
   ;(d.settings as any).workProcessInnerScrollEnabled = normalizeWorkProcessInnerScrollEnabled((d.settings as any).workProcessInnerScrollEnabled)
   ;(d.settings as any).workProcessInnerScrollHeight = normalizeWorkProcessInnerScrollHeight((d.settings as any).workProcessInnerScrollHeight)
+  ;(d.settings as any).workProcessInnerScrollWidth = normalizeWorkProcessInnerScrollWidth((d.settings as any).workProcessInnerScrollWidth)
   ;(d.settings as any).messageOffscreenSkipEnabled = normalizeMessageOffscreenSkipEnabled((d.settings as any).messageOffscreenSkipEnabled)
   ;(d.settings as any).sessionKeepAliveLimit = normalizeSessionKeepAliveLimit((d.settings as any).sessionKeepAliveLimit)
   ;(d.settings as any).wallpaper = normalizeWallpaperSettings((d.settings as any).wallpaper)

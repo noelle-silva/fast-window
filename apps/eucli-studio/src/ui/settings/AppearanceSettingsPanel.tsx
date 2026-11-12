@@ -23,10 +23,14 @@ import {
   WORK_PROCESS_INNER_SCROLL_HEIGHT_MAX,
   WORK_PROCESS_INNER_SCROLL_HEIGHT_MIN,
   WORK_PROCESS_INNER_SCROLL_HEIGHT_STEP,
+  WORK_PROCESS_INNER_SCROLL_WIDTH_MAX,
+  WORK_PROCESS_INNER_SCROLL_WIDTH_MIN,
+  WORK_PROCESS_INNER_SCROLL_WIDTH_STEP,
   normalizeWorkProcessDisplayEnabled,
   normalizeWorkProcessDisplayMode,
   normalizeWorkProcessInnerScrollEnabled,
   normalizeWorkProcessInnerScrollHeight,
+  normalizeWorkProcessInnerScrollWidth,
 } from '../../domain/workProcessDisplay'
 import { normalizeMessageOffscreenSkipEnabled } from '../../domain/messageOffscreen'
 import {
@@ -306,6 +310,12 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
     workProcessInnerScrollHeight,
     normalizeWorkProcessInnerScrollHeight,
     (next) => controller.actions.setWorkProcessInnerScrollHeight?.(next, true),
+  )
+  const workProcessInnerScrollWidth = normalizeWorkProcessInnerScrollWidth((settings as any)?.workProcessInnerScrollWidth)
+  const workProcessInnerScrollWidthDraft = useNumberDraft(
+    workProcessInnerScrollWidth,
+    normalizeWorkProcessInnerScrollWidth,
+    (next) => controller.actions.setWorkProcessInnerScrollWidth?.(next, true),
   )
   const messageOffscreenSkipEnabled = normalizeMessageOffscreenSkipEnabled(settings?.messageOffscreenSkipEnabled)
   const sessionKeepAliveLimit = normalizeSessionKeepAliveLimit((settings as any)?.sessionKeepAliveLimit)
@@ -934,19 +944,34 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
             </Stack>
 
             {workProcessInnerScrollEnabled ? (
-              <ChatTextMetricRow
-                label="展开高度"
-                unit="px"
-                min={WORK_PROCESS_INNER_SCROLL_HEIGHT_MIN}
-                max={WORK_PROCESS_INNER_SCROLL_HEIGHT_MAX}
-                step={WORK_PROCESS_INNER_SCROLL_HEIGHT_STEP}
-                value={workProcessInnerScrollHeight}
-                draft={workProcessInnerScrollHeightDraft.draft}
-                disabled={loading}
-                onDraftChange={workProcessInnerScrollHeightDraft.setDraft}
-                onCommitDraft={workProcessInnerScrollHeightDraft.commitDraft}
-                onValueChange={(value, commit) => controller.actions.setWorkProcessInnerScrollHeight?.(value, commit)}
-              />
+              <>
+                <ChatTextMetricRow
+                  label="展开高度"
+                  unit="px"
+                  min={WORK_PROCESS_INNER_SCROLL_HEIGHT_MIN}
+                  max={WORK_PROCESS_INNER_SCROLL_HEIGHT_MAX}
+                  step={WORK_PROCESS_INNER_SCROLL_HEIGHT_STEP}
+                  value={workProcessInnerScrollHeight}
+                  draft={workProcessInnerScrollHeightDraft.draft}
+                  disabled={loading}
+                  onDraftChange={workProcessInnerScrollHeightDraft.setDraft}
+                  onCommitDraft={workProcessInnerScrollHeightDraft.commitDraft}
+                  onValueChange={(value, commit) => controller.actions.setWorkProcessInnerScrollHeight?.(value, commit)}
+                />
+                <ChatTextMetricRow
+                  label="展开宽度"
+                  unit="%"
+                  min={WORK_PROCESS_INNER_SCROLL_WIDTH_MIN}
+                  max={WORK_PROCESS_INNER_SCROLL_WIDTH_MAX}
+                  step={WORK_PROCESS_INNER_SCROLL_WIDTH_STEP}
+                  value={workProcessInnerScrollWidth}
+                  draft={workProcessInnerScrollWidthDraft.draft}
+                  disabled={loading}
+                  onDraftChange={workProcessInnerScrollWidthDraft.setDraft}
+                  onCommitDraft={workProcessInnerScrollWidthDraft.commitDraft}
+                  onValueChange={(value, commit) => controller.actions.setWorkProcessInnerScrollWidth?.(value, commit)}
+                />
+              </>
             ) : null}
           </Stack>
         </SettingsSection>

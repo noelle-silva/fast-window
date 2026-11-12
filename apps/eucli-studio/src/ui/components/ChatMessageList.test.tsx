@@ -56,6 +56,7 @@ function createProps(controller: any, message: any) {
     workProcessDisplayMode: 'collapse-when-done' as const,
     workProcessInnerScrollEnabled: false,
     workProcessInnerScrollHeight: 480,
+    workProcessInnerScrollWidth: 80,
     stickersEnabled: false,
     stickerMap: {},
     renderSafetyPolicyKey: 'original',

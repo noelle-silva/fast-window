@@ -34,6 +34,7 @@ import {
   normalizeWorkProcessDisplayMode,
   normalizeWorkProcessInnerScrollEnabled,
   normalizeWorkProcessInnerScrollHeight,
+  normalizeWorkProcessInnerScrollWidth,
 } from '../../domain/workProcessDisplay'
 import { normalizeMessageOffscreenSkipEnabled } from '../../domain/messageOffscreen'
 import { normalizeSessionKeepAliveLimit } from '../../domain/sessionKeepAlive'
@@ -405,6 +406,12 @@ export function createAppearanceActions(deps: {
     setWorkProcessInnerScrollHeight: (height: any, commit: any) => {
       if (!state.data) return
       ;(state.data.settings as any).workProcessInnerScrollHeight = normalizeWorkProcessInnerScrollHeight(height)
+      if (commit) persistMeta()
+      notifySettings()
+    },
+    setWorkProcessInnerScrollWidth: (width: any, commit: any) => {
+      if (!state.data) return
+      ;(state.data.settings as any).workProcessInnerScrollWidth = normalizeWorkProcessInnerScrollWidth(width)
       if (commit) persistMeta()
       notifySettings()
     },
