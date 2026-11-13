@@ -19,7 +19,6 @@ const sessions = [
 
 function createProps(overrides: Partial<React.ComponentProps<typeof SidebarSessionList>> = {}): React.ComponentProps<typeof SidebarSessionList> {
   return {
-    title: '历史会话',
     sessions,
     pendingChat: null,
     pendingTitle: '历史会话',

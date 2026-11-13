@@ -5,8 +5,9 @@ import type { ChatSessionRunIndicatorKind } from '../ChatSessionRunIndicator'
 import { SidebarSessionList, type SidebarSessionTargetKind } from '../SidebarSessionList'
 import { SidebarRoleList } from './SidebarRoleList'
 import { SidebarScrollArea } from './SidebarScrollArea'
-import { SidebarEmptyHint, SidebarSectionTitle } from './SidebarSection'
+import { SidebarEmptyHint } from './SidebarSection'
 
+// 角色视图：两个页签的分组标题全部退役，顶上那个搜索框就是清单的头。
 export function RoleSidebarPanel(props: {
   tab: RoleSidebarTab
   refreshVersion: string
@@ -49,14 +50,12 @@ export function RoleSidebarPanel(props: {
     if (!props.activeRoleId) {
       return (
         <SidebarScrollArea>
-          <SidebarSectionTitle>历史会话</SidebarSectionTitle>
           <SidebarEmptyHint>先选择角色。</SidebarEmptyHint>
         </SidebarScrollArea>
       )
     }
     return (
       <SidebarSessionList
-        title="历史会话"
         sessions={sessions.sessions}
         pendingChat={props.pendingChat}
         pendingTitle="新聊天"
@@ -76,11 +75,11 @@ export function RoleSidebarPanel(props: {
 
   return (
     <SidebarScrollArea>
-      <SidebarSectionTitle>角色</SidebarSectionTitle>
       <SidebarRoleList
         roles={props.roles}
         scope="role"
         workspaceId=""
+        searchText={props.searchText}
         activeRoleId={props.activeRoleId}
         activeTargetKind={props.activeTargetKind}
         formatModelRefText={props.formatModelRefText}

@@ -2,14 +2,16 @@ import * as React from 'react'
 import { Box, Button, Typography } from '@mui/material'
 import { RoleList } from '../EntityLists'
 import { SIDEBAR_ITEM_SX } from '../../softPopoverStyles'
+import { matchesSearchQuery } from '../../utils/text'
 import { SidebarEmptyHint } from './SidebarSection'
 
 // 角色 / 工作区两个侧边栏视图共用的角色列表：
-// 选中态与空态文案由视图范围决定，点选和编辑回调由所在面板提供。
+// 选中态、搜索过滤与空态文案由视图范围决定，点选和编辑回调由所在面板提供。
 export function SidebarRoleList(props: {
   roles: any[]
   scope: 'role' | 'workspace'
   workspaceId: string
+  searchText: string
   activeRoleId: string
   activeTargetKind: 'role' | 'group' | 'workspace'
   formatModelRefText: (modelRef: any) => string
@@ -22,6 +24,7 @@ export function SidebarRoleList(props: {
     roles,
     scope,
     workspaceId,
+    searchText,
     activeRoleId,
     activeTargetKind,
     formatModelRefText,
@@ -30,6 +33,11 @@ export function SidebarRoleList(props: {
     onOpenEditor,
     onMove,
   } = props
+
+  const visibleRoles = React.useMemo(
+    () => roles.filter((role: any) => matchesSearchQuery(searchText, [role?.name])),
+    [roles, searchText],
+  )
 
   if (scope === 'workspace' && !workspaceId) return <SidebarEmptyHint>先选择工作区。</SidebarEmptyHint>
 
@@ -49,6 +57,8 @@ export function SidebarRoleList(props: {
     )
   }
 
+  if (!visibleRoles.length) return <SidebarEmptyHint>没有匹配的角色。</SidebarEmptyHint>
+
   const isSelected = (roleId: string) => {
     if (roleId !== activeRoleId) return false
     return activeTargetKind === (scope === 'workspace' ? 'workspace' : 'role')
@@ -56,7 +66,7 @@ export function SidebarRoleList(props: {
 
   return (
     <RoleList
-      roles={roles}
+      roles={visibleRoles}
       isSelected={isSelected}
       onSelect={onSelect}
       onOpenEditor={onOpenEditor}

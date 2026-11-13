@@ -1,16 +1,16 @@
 import * as React from 'react'
-import { Box, Button, Typography } from '@mui/material'
 import type { WorkspaceSidebarTab } from '../../../domain/sidebarNavigationMemory'
 import { workspaceSidebarSessions } from '../../../domain/sidebarSessions'
 import { workspaceRoleTargetId } from '../../../domain/workspaceRoleTarget'
 import type { ChatSessionRunIndicatorKind } from '../ChatSessionRunIndicator'
-import { WorkspaceList } from '../EntityLists'
 import { SidebarSessionList, type SidebarSessionTargetKind } from '../SidebarSessionList'
 import { SidebarRoleList } from './SidebarRoleList'
+import { SidebarWorkspaceList } from './SidebarWorkspaceList'
 import { SidebarScrollArea } from './SidebarScrollArea'
-import { SIDEBAR_ITEM_SX } from '../../softPopoverStyles'
-import { SidebarEmptyHint, SidebarSectionTitle } from './SidebarSection'
+import { SidebarEmptyHint } from './SidebarSection'
 
+// 工作区视图：三个页签的分组标题全部退役，顶上那个搜索框就是清单的头；
+// 面板只把数据与回调交给列表模块，列表自己管过滤与空态。
 export function WorkspaceSidebarPanel(props: {
   tab: WorkspaceSidebarTab
   refreshVersion: string
@@ -57,26 +57,16 @@ export function WorkspaceSidebarPanel(props: {
   if (props.tab === 'workspaces') {
     return (
       <SidebarScrollArea>
-        <SidebarSectionTitle>工作区</SidebarSectionTitle>
-        {props.workspaces.length ? (
-          <WorkspaceList
-            workspaces={props.workspaces}
-            isSelected={(id) => id === props.activeWorkspaceId && props.activeTargetKind === 'workspace'}
-            onSelect={props.onSelectWorkspace}
-            onOpenEditor={props.onOpenWorkspaceEditor}
-            sortable={{ onMove: props.onMoveWorkspace }}
-            itemSx={SIDEBAR_ITEM_SX}
-          />
-        ) : (
-          <Box sx={{ px: 1.5, py: 1 }}>
-            <Typography variant="body2" color="text.secondary">
-              还没有工作区。
-            </Typography>
-            <Button size="small" variant="contained" sx={{ mt: 1 }} onClick={() => props.openPluginSettings('workspaces')}>
-              去创建工作区
-            </Button>
-          </Box>
-        )}
+        <SidebarWorkspaceList
+          workspaces={props.workspaces}
+          searchText={props.searchText}
+          activeWorkspaceId={props.activeWorkspaceId}
+          activeTargetKind={props.activeTargetKind}
+          openPluginSettings={props.openPluginSettings}
+          onSelect={props.onSelectWorkspace}
+          onOpenEditor={props.onOpenWorkspaceEditor}
+          onMove={props.onMoveWorkspace}
+        />
       </SidebarScrollArea>
     )
   }
@@ -84,11 +74,11 @@ export function WorkspaceSidebarPanel(props: {
   if (props.tab === 'roles') {
     return (
       <SidebarScrollArea>
-        <SidebarSectionTitle>角色</SidebarSectionTitle>
         <SidebarRoleList
           roles={props.roles}
           scope="workspace"
           workspaceId={props.activeWorkspaceId}
+          searchText={props.searchText}
           activeRoleId={props.activeRoleId}
           activeTargetKind={props.activeTargetKind}
           formatModelRefText={props.formatModelRefText}
@@ -104,7 +94,6 @@ export function WorkspaceSidebarPanel(props: {
   if (!props.activeWorkspaceId || !props.activeRoleId) {
     return (
       <SidebarScrollArea>
-        <SidebarSectionTitle>会话</SidebarSectionTitle>
         <SidebarEmptyHint>
           {!props.activeWorkspaceId ? '先选择工作区。' : '先选择角色。'}
         </SidebarEmptyHint>
@@ -114,7 +103,6 @@ export function WorkspaceSidebarPanel(props: {
 
   return (
     <SidebarSessionList
-      title="会话"
       sessions={sessions.sessions}
       pendingChat={props.pendingChat}
       pendingTitle="工作区会话"

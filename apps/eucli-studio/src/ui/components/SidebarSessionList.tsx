@@ -6,7 +6,6 @@ import { SIDEBAR_ITEM_SX, SOFT_POPOVER_ITEM_TOP_SX, SOFT_POPOVER_LIST_SX } from 
 import { chatHistoryMatchesSearch } from '../utils/text'
 import { useLazyListWindow } from '../hooks/useLazyListWindow'
 import { SidebarScrollArea } from './sidebar/SidebarScrollArea'
-import { SidebarSectionTitle } from './sidebar/SidebarSection'
 
 export type SidebarSessionTargetKind = 'role' | 'workspace'
 
@@ -14,7 +13,6 @@ const SESSION_PAGE_SIZE = 20
 const SESSION_BOTTOM_THRESHOLD_RATIO = 0.25
 
 export function SidebarSessionList(props: {
-  title: string
   sessions: any[]
   pendingChat: any
   pendingTitle: string
@@ -42,7 +40,6 @@ export function SidebarSessionList(props: {
   ) => ChatSessionRunIndicatorKind | ''
 }) {
   const {
-    title,
     sessions,
     pendingChat,
     pendingTitle,
@@ -106,7 +103,6 @@ export function SidebarSessionList(props: {
 
   return (
     <SidebarScrollArea scrollRef={scrollRef} onScrollPositionChange={onScrollPositionChange}>
-      <SidebarSectionTitle>{title}</SidebarSectionTitle>
       {!hasPending && !visibleSessions.length ? (
         <Box sx={{ px: 1.5, py: 1 }}>
           <Typography variant="body2" color="text.secondary">

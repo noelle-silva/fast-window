@@ -179,3 +179,131 @@ describe('侧边栏视图的角色范围', () => {
     expect(host!.textContent).not.toContain('只经全局变化')
   })
 })
+
+describe('侧边栏 A 的列表搜索', () => {
+  let host: HTMLDivElement | null = null
+  let root: any = null
+
+  const projectWorkspaces = [
+    { id: 'ws-1', name: '项目甲' },
+    { id: 'ws-2', name: '项目乙' },
+  ]
+
+  beforeEach(() => {
+    resetSidebarNavigationMemory()
+    host = document.createElement('div')
+    document.body.appendChild(host)
+    root = createRoot(host)
+  })
+
+  afterEach(() => {
+    if (root) {
+      act(() => root.unmount())
+      root = null
+    }
+    host?.remove()
+    host = null
+  })
+
+  function renderSidebar(overrides: Partial<React.ComponentProps<typeof ChatSidebar>> = {}) {
+    const theme = createStudioMuiTheme('light', getColorThemeColors(resolveColorThemePreview(undefined, null)))
+    act(() => {
+      root.render(
+        <ThemeProvider theme={theme}>
+          <ChatSidebar {...createProps(overrides)} />
+        </ThemeProvider>,
+      )
+    })
+  }
+
+  function searchInput(): HTMLInputElement {
+    const input = host!.querySelector('input')
+    if (!input) throw new Error('侧边栏没有搜索框')
+    return input as HTMLInputElement
+  }
+
+  function typeSearch(text: string) {
+    const input = searchInput()
+    const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!
+    act(() => {
+      setValue.call(input, text)
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+  }
+
+  function captionTexts(): string[] {
+    return Array.from(host!.querySelectorAll('.MuiTypography-caption')).map((el) => String(el.textContent || ''))
+  }
+
+  it('工作区页签：分组标题让位给搜索框，输入即过滤清单', () => {
+    setWorkspaceSidebarTab('workspaces')
+    renderSidebar({ view: 'workspace', workspaces: projectWorkspaces })
+
+    expect(captionTexts()).not.toContain('工作区')
+    expect(host!.textContent).toContain('项目甲')
+    expect(host!.textContent).toContain('项目乙')
+
+    typeSearch('乙')
+
+    expect(host!.textContent).toContain('项目乙')
+    expect(host!.textContent).not.toContain('项目甲')
+  })
+
+  it('角色页签：搜索框实时过滤角色清单', () => {
+    setWorkspaceSidebarTab('roles')
+    renderSidebar({ view: 'workspace', workspaceRoles: roles })
+
+    typeSearch('乙')
+
+    expect(searchInput().value).toBe('乙')
+    expect(host!.textContent).toContain('乙角色')
+    expect(host!.textContent).not.toContain('甲角色')
+    expect(host!.textContent).not.toContain('丙角色')
+  })
+
+  it('搜索词只属于输入时那一个页签，切页签就失效', () => {
+    setWorkspaceSidebarTab('workspaces')
+    const props: Partial<React.ComponentProps<typeof ChatSidebar>> = {
+      view: 'workspace',
+      workspaces: projectWorkspaces,
+      workspaceRoles: roles,
+    }
+    renderSidebar(props)
+    typeSearch('乙')
+    expect(host!.textContent).not.toContain('项目甲')
+
+    act(() => setWorkspaceSidebarTab('roles'))
+    renderSidebar(props)
+
+    expect(searchInput().value).toBe('')
+    expect(host!.textContent).toContain('甲角色')
+    expect(host!.textContent).toContain('丙角色')
+  })
+
+  it('会话页签的搜索框照旧实时过滤会话', () => {
+    setRoleSidebarTab('history')
+    const data: any = {
+      chatsByRole: {
+        'role-a': {
+          activeChatId: '',
+          chatMetas: [
+            { id: 'c1', title: '甲会话', updatedAt: 10 },
+            { id: 'c2', title: '乙会话', updatedAt: 20 },
+          ],
+        },
+      },
+      chatsByWorkspace: {},
+    }
+    renderSidebar({ view: 'role', activeTargetKind: 'role', activeRoleId: 'role-a', data })
+
+    // 分类名已经写在页签上，清单顶上不再重复一行「历史会话」。
+    expect(captionTexts()).not.toContain('历史会话')
+    expect(searchInput().placeholder).toBe('')
+    expect(searchInput().getAttribute('aria-label')).toBe('搜索列表')
+
+    typeSearch('乙会话')
+
+    expect(host!.textContent).toContain('乙会话')
+    expect(host!.textContent).not.toContain('甲会话')
+  })
+})

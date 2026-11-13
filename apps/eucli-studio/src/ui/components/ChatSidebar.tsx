@@ -1,13 +1,12 @@
 import * as React from 'react'
-import { Box, IconButton, InputAdornment, TextField, Tooltip } from '@mui/material'
-import CloseIcon from '@mui/icons-material/Close'
-import SearchIcon from '@mui/icons-material/Search'
+import { Box, IconButton, Tooltip } from '@mui/material'
 import SwapHorizIcon from '@mui/icons-material/SwapHoriz'
 import {
   getSidebarNavigationMemory,
   type RoleSidebarTab,
   type WorkspaceSidebarTab,
 } from '../../domain/sidebarNavigationMemory'
+import { sidebarSearchScopeKey } from '../../domain/sidebarSearchScope'
 import type { SidebarView } from '../../domain/sidebarView'
 import type { SidebarTabsVariant } from '../../domain/sidebarTabs'
 import { refreshScopes } from '../../domain/uiRefreshScope'
@@ -17,6 +16,7 @@ import type { ChatSessionRunIndicatorKind } from './ChatSessionRunIndicator'
 import { SidebarFrame } from './SidebarFrame'
 import { SidebarTabsHeader, type SidebarTabItem } from './SidebarTabsHeader'
 import { RoleSidebarPanel } from './sidebar/RoleSidebarPanel'
+import { SidebarSearchField } from './sidebar/SidebarSearchField'
 import { WorkspaceSidebarPanel } from './sidebar/WorkspaceSidebarPanel'
 
 // 侧边栏 A：原有的角色 / 工作区侧边栏。
@@ -138,12 +138,21 @@ export function ChatSidebar(props: {
       ? pendingWorkspaceChat.chat
       : null
 
-  const [sessionSearchText, setSessionSearchText] = React.useState('')
-  React.useEffect(() => {
-    setSessionSearchText('')
-  }, [view, activeRoleId, activeWorkspaceId])
+  // 搜索词按「范围」记账：范围一换就等于换了一份列表，旧关键词自然失效、输入框回空，
+  // 不靠 effect 去清——只有内容真的变了才换范围（见 domain/sidebarSearchScope）。
+  const searchScopeKey = sidebarSearchScopeKey({
+    view,
+    tab: activeTab,
+    activeRoleId,
+    activeWorkspaceId,
+  })
+  const [searchDraft, setSearchDraft] = React.useState({ scopeKey: searchScopeKey, text: '' })
+  const searchText = searchDraft.scopeKey === searchScopeKey ? searchDraft.text : ''
+  const updateSearchText = React.useCallback(
+    (text: string) => setSearchDraft({ scopeKey: searchScopeKey, text }),
+    [searchScopeKey],
+  )
 
-  const showSessionSearch = view === 'role' ? activeTab === 'history' : activeTab === 'session'
   const tabs: SidebarTabItem<RoleSidebarTab | WorkspaceSidebarTab>[] =
     view === 'role'
       ? [{ value: 'roles', label: '角色' }, { value: 'history', label: '历史会话' }]
@@ -180,38 +189,7 @@ export function ChatSidebar(props: {
       topbarBlur={topbarBlur}
       header={header}
     >
-      {showSessionSearch ? (
-        <Box sx={{ flexShrink: 0, px: 1.5, pt: 1, pb: 0.5 }}>
-          <TextField
-            fullWidth
-            size="small"
-            variant="standard"
-            placeholder="搜索会话…"
-            value={sessionSearchText}
-            onChange={(event) => setSessionSearchText(event.target.value)}
-            InputProps={{
-              disableUnderline: true,
-              startAdornment: (
-                <InputAdornment position="start">
-                  <SearchIcon fontSize="small" />
-                </InputAdornment>
-              ),
-              endAdornment: sessionSearchText ? (
-                <InputAdornment position="end">
-                  <IconButton
-                    size="small"
-                    edge="end"
-                    aria-label="清空搜索"
-                    onClick={() => setSessionSearchText('')}
-                  >
-                    <CloseIcon fontSize="inherit" />
-                  </IconButton>
-                </InputAdornment>
-              ) : null,
-            }}
-          />
-        </Box>
-      ) : null}
+      <SidebarSearchField value={searchText} onChange={updateSearchText} />
 
       <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
         {view === 'role' ? (
@@ -225,7 +203,7 @@ export function ChatSidebar(props: {
             data={data}
             pendingChat={rolePendingChat}
             roleAvatarImage={activeRoleAvatarImage}
-            searchText={sessionSearchText}
+            searchText={searchText}
             formatModelRefText={formatModelRefText}
             openPluginSettings={openPluginSettings}
             fmtTime={fmtTime}
@@ -250,7 +228,7 @@ export function ChatSidebar(props: {
             data={data}
             pendingChat={workspacePendingChat}
             roleAvatarImage={activeRoleAvatarImage}
-            searchText={sessionSearchText}
+            searchText={searchText}
             formatModelRefText={formatModelRefText}
             openPluginSettings={openPluginSettings}
             fmtTime={fmtTime}
