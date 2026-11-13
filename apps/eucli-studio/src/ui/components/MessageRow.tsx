@@ -427,6 +427,8 @@ function MessageRowImpl(props: MessageRowProps) {
 
   const siblings = branchSiblings
   const canSwitchBranch = !isUser && siblings.length >= 2 && branchIndex >= 0
+  // 编辑态占满整行，编辑框才和 AI 消息编辑框同宽；用户消息静止态才是贴合内容的白色气泡。
+  const fitContent = isUser && !isEditing
 
   return (
     <Stack direction="row" justifyContent={isUser ? 'flex-end' : 'flex-start'}>
@@ -440,8 +442,8 @@ function MessageRowImpl(props: MessageRowProps) {
         onBlur={handleRowBlur}
         onContextMenu={isEditing || isDisplayOnlyPendingRunTail ? undefined : (e) => onMessageContextMenu(e, mid, isUser ? 'user' : 'assistant')}
         sx={{
-          width: isUser ? 'auto' : '100%',
-          maxWidth: isUser ? 920 : '100%',
+          width: fitContent ? 'auto' : '100%',
+          maxWidth: fitContent ? 920 : '100%',
           px: 1.5,
           py: 1.25,
           bgcolor: isUser ? '#fff' : 'transparent',
