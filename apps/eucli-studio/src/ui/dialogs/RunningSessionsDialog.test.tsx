@@ -79,6 +79,68 @@ describe('运行中会话窗口', () => {
     expect(onOpen.mock.calls[0][0]).toMatchObject({ key: 'role:role-a:session-1', sessionId: 'session-1' })
   })
 
+  it('右键条目把条目交给会话菜单', async () => {
+    const onContextMenu = vi.fn()
+    await act(async () => {
+      root.render(
+        React.createElement(RunningSessionsDialog, {
+          open: true,
+          entries: [entry()],
+          activeKey: '',
+          onClose: vi.fn(),
+          onOpen: vi.fn(),
+          onContextMenu,
+        }),
+      )
+    })
+
+    const row = Array.from(document.querySelectorAll('[role="button"]')).find((item) =>
+      String(item.textContent || '').includes('角色会话'),
+    ) as HTMLElement
+    expect(row).toBeTruthy()
+
+    await act(async () => {
+      row.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 12, clientY: 34 }))
+    })
+
+    expect(onContextMenu).toHaveBeenCalledTimes(1)
+    expect(onContextMenu.mock.calls[0][1]).toMatchObject({
+      key: 'role:role-a:session-1',
+      sessionId: 'session-1',
+      targetId: 'role-a',
+    })
+  })
+
+  it('Ctrl / Cmd 点击条目放进工作桌面，不切换会话', async () => {
+    const onOpen = vi.fn()
+    const onAddToDesk = vi.fn()
+    await act(async () => {
+      root.render(
+        React.createElement(RunningSessionsDialog, {
+          open: true,
+          entries: [entry()],
+          activeKey: '',
+          onClose: vi.fn(),
+          onOpen,
+          onAddToDesk,
+        }),
+      )
+    })
+
+    const row = Array.from(document.querySelectorAll('[role="button"]')).find((item) =>
+      String(item.textContent || '').includes('角色会话'),
+    ) as HTMLElement
+    expect(row).toBeTruthy()
+
+    await act(async () => {
+      row.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, ctrlKey: true }))
+    })
+
+    expect(onAddToDesk).toHaveBeenCalledTimes(1)
+    expect(onAddToDesk.mock.calls[0][0]).toMatchObject({ key: 'role:role-a:session-1' })
+    expect(onOpen).not.toHaveBeenCalled()
+  })
+
   it('打开时订阅 runCards 范围', async () => {
     const subscribeScope = vi.fn(() => () => {})
     const controller = { getScopeVer: () => 0, subscribeScope }

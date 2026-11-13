@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { collectRunningSessions, normalizeRunningSessionStatus, runningSessionKey } from './runningSessions'
+import {
+  collectRunningSessions,
+  normalizeRunningSessionStatus,
+  runningSessionChatRef,
+  runningSessionKey,
+  type RunningSessionEntry,
+} from './runningSessions'
 
 function card(patch: Record<string, any> = {}) {
   return {
@@ -140,5 +146,62 @@ describe('运行中会话汇总', () => {
     expect(normalizeRunningSessionStatus('waiting_confirmation')).toEqual({ key: 'waiting_confirmation', label: '等待确认' })
     expect(normalizeRunningSessionStatus('retrying')).toEqual({ key: 'retrying', label: '等待重试' })
     expect(normalizeRunningSessionStatus('unknown')).toEqual({ key: 'active', label: '运行中' })
+  })
+})
+
+describe('运行会话的会话引用口径', () => {
+  function entry(patch: Partial<RunningSessionEntry> = {}): RunningSessionEntry {
+    return {
+      key: 'role:role-a:session-1',
+      targetKind: 'role',
+      targetId: 'role-a',
+      roleId: 'role-a',
+      groupId: '',
+      workspaceId: '',
+      sessionId: 'session-1',
+      title: '角色会话',
+      targetName: '角色A',
+      avatarImage: '',
+      statusKey: 'running',
+      statusLabel: '生成中',
+      updatedAt: 100,
+      ...patch,
+    }
+  }
+
+  it('工作区目标拆回 workspaceId 与 roleId', () => {
+    expect(
+      runningSessionChatRef(
+        entry({
+          targetKind: 'workspace',
+          targetId: 'workspace-a::role-a',
+          workspaceId: 'workspace-a',
+          roleId: 'role-a',
+          sessionId: 'workspace-session',
+        }),
+      ),
+    ).toEqual({ targetKind: 'workspace', targetId: 'workspace-a', roleId: 'role-a', chatId: 'workspace-session' })
+  })
+
+  it('角色与群组目标直接使用条目里的目标标识', () => {
+    expect(runningSessionChatRef(entry())).toEqual({
+      targetKind: 'role',
+      targetId: 'role-a',
+      roleId: '',
+      chatId: 'session-1',
+    })
+    expect(
+      runningSessionChatRef(
+        entry({ targetKind: 'group', targetId: 'group-a', groupId: 'group-a', roleId: 'role-a', sessionId: 'group-session' }),
+      ),
+    ).toEqual({ targetKind: 'group', targetId: 'group-a', roleId: '', chatId: 'group-session' })
+  })
+
+  it('工作区缺角色或缺会话时不产出引用', () => {
+    expect(
+      runningSessionChatRef(entry({ targetKind: 'workspace', targetId: 'workspace-a::', workspaceId: 'workspace-a', roleId: '' })),
+    ).toBeNull()
+    expect(runningSessionChatRef(entry({ targetKind: 'workspace', targetId: '::role-a', workspaceId: '', roleId: 'role-a' }))).toBeNull()
+    expect(runningSessionChatRef(entry({ sessionId: '' }))).toBeNull()
   })
 })

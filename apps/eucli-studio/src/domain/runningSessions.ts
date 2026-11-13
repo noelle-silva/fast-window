@@ -5,6 +5,15 @@ export type RunningSessionTargetKind = 'role' | 'group' | 'workspace'
 
 export type RunningSessionStatusKey = 'queued' | 'running' | 'waiting_confirmation' | 'retrying' | 'active'
 
+// 会话引用的动作口径：工作区拆成 workspaceId + roleId，群组与角色用各自的目标标识。
+// 桌面、收藏、进桌面动作都认这一份，三种来源（侧边栏 / 收藏夹 / 运行会话）都折到这里。
+export type RunningSessionChatRef = {
+  targetKind: RunningSessionTargetKind
+  targetId: string
+  roleId: string
+  chatId: string
+}
+
 export type RunningSessionEntry = {
   key: string
   targetKind: RunningSessionTargetKind
@@ -40,6 +49,17 @@ export function runningSessionKey(targetKindRaw: unknown, targetIdRaw: unknown, 
   const sessionId = text(sessionIdRaw)
   if (!targetKind || !targetId || !sessionId) return ''
   return `${targetKind}:${targetId}:${sessionId}`
+}
+
+// 条目里的 targetId 对工作区是「工作区|角色」合成串，动作层要的是拆开的两段；
+// 运行卡本身带着 workspaceId / roleId，这里折一次，调用方不再各自拆。
+export function runningSessionChatRef(entry: RunningSessionEntry): RunningSessionChatRef | null {
+  const targetId = entry.targetKind === 'workspace' ? text(entry.workspaceId) : text(entry.targetId)
+  const roleId = entry.targetKind === 'workspace' ? text(entry.roleId) : ''
+  const chatId = text(entry.sessionId)
+  if (!targetId || !chatId) return null
+  if (entry.targetKind === 'workspace' && !roleId) return null
+  return { targetKind: entry.targetKind, targetId, roleId, chatId }
 }
 
 export function normalizeRunningSessionStatus(value: unknown): { key: RunningSessionStatusKey; label: string } {

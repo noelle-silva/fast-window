@@ -49,7 +49,7 @@ import { formatModelRefDisplayText, normalizeModelRef } from '../domain/modelRef
 import { roleDefaultModelRef } from '../domain/roleModelCandidates'
 import { activeChatTargetKey, resolveActiveChatNav } from '../domain/chatNavigation'
 import { resolveRunFocusMid } from '../domain/branching'
-import { collectRunningSessions, runningSessionKey, type RunningSessionEntry } from '../domain/runningSessions'
+import { collectRunningSessions, runningSessionChatRef, runningSessionKey, type RunningSessionEntry } from '../domain/runningSessions'
 import { workspaceRolesInScope } from '../domain/workspaceRoleScope'
 import { chatSettingsTargetKey } from '../controller/chatSessionTarget'
 import { selectChatLoadFailure } from '../controller/chatLoadFailure'
@@ -1264,6 +1264,26 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     [controller],
   )
 
+  // 运行会话条目的右键与会话列表同一个菜单：条目里的 targetId 对工作区已经是
+  // 「工作区|角色」合成串，与会话列表口径一致，直接折给同一个入口。
+  const onRunningSessionContextMenu = React.useCallback(
+    (event: React.MouseEvent, entry: RunningSessionEntry) => {
+      onChatContextMenu(event, entry.targetKind, entry.targetId, entry.sessionId, entry.title)
+    },
+    [onChatContextMenu],
+  )
+
+  // Ctrl / Cmd 点运行会话进桌面：运行卡把工作区拆成 workspaceId / roleId，
+  // 由 domain 折成动作层口径，与侧边栏、收藏夹走同一条 addChatToDesk。
+  const addRunningSessionToDesk = React.useCallback(
+    (entry: RunningSessionEntry) => {
+      const ref = runningSessionChatRef(entry)
+      if (!ref) return
+      controller.actions.addChatToDesk?.(ref.targetKind, ref.targetId, ref.roleId, ref.chatId)
+    },
+    [controller],
+  )
+
   const sidebarProps = React.useMemo(() => ({
     controller,
     navigationVersion: sidebarMemoryVersion,
@@ -2316,6 +2336,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     activeKey: activeRunningSessionKey,
     onClose: onCloseRunningSessions,
     onOpen: openRunningSession,
+    onContextMenu: onRunningSessionContextMenu,
+    onAddToDesk: addRunningSessionToDesk,
   }), [
     controller,
     runningSessionsOpen,
@@ -2323,6 +2345,8 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     activeRunningSessionKey,
     onCloseRunningSessions,
     openRunningSession,
+    onRunningSessionContextMenu,
+    addRunningSessionToDesk,
   ])
 
   return (

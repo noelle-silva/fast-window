@@ -68,10 +68,14 @@ export function RunningSessionsDialog(props: {
   activeKey: string
   onClose: () => void
   onOpen: (entry: RunningSessionEntry) => void
+  // 右键条目：与会话列表同一个菜单，调用方只负责把条目转成菜单目标。
+  onContextMenu?: (event: React.MouseEvent, entry: RunningSessionEntry) => void
+  // 按住 Ctrl / Cmd 点条目：不切换会话，直接把这条放进工作桌面。
+  onAddToDesk?: (entry: RunningSessionEntry) => void
   // 运行卡范围订阅通道：打开时才建立，关闭的弹层不订阅任何数据地址。
   controller?: any
 }) {
-  const { open, entries, activeKey, onClose, onOpen } = props
+  const { open, entries, activeKey, onClose, onOpen, onContextMenu, onAddToDesk } = props
   useScopedUiVersion(props.controller, refreshScopes.runCards(), !!open && !!props.controller)
 
   return (
@@ -127,7 +131,16 @@ export function RunningSessionsDialog(props: {
               <ListItemButton
                 key={entry.key}
                 selected={entry.key === activeKey}
-                onClick={() => onOpen(entry)}
+                onClick={(event) => {
+                  if ((event.ctrlKey || event.metaKey) && onAddToDesk) {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    onAddToDesk(entry)
+                    return
+                  }
+                  onOpen(entry)
+                }}
+                onContextMenu={onContextMenu ? (event) => onContextMenu(event, entry) : undefined}
                 sx={{ ...SOFT_POPOVER_ITEM_SX, gap: 1.25, py: 1 }}
               >
                 <ListItemAvatar sx={{ minWidth: 0, mr: 0, alignSelf: 'center' }}>
