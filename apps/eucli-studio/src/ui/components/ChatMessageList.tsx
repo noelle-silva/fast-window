@@ -57,6 +57,8 @@ type ChatMessageListProps = {
   workProcessInnerScrollEnabled: boolean
   workProcessInnerScrollHeight: number
   workProcessInnerScrollWidth: number
+  // 到边界后是否把余下的滚动交给外层消息区（默认关闭，边界即停）。
+  workProcessInnerScrollChainingEnabled: boolean
   stickersEnabled: boolean
   stickerMap: any
   renderSafetyPolicyKey: string
@@ -121,6 +123,7 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
     workProcessInnerScrollEnabled,
     workProcessInnerScrollHeight,
     workProcessInnerScrollWidth,
+    workProcessInnerScrollChainingEnabled,
     stickersEnabled,
     stickerMap,
     renderSafetyPolicyKey,
@@ -344,12 +347,16 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
           <Collapse in={expanded} timeout={180} unmountOnExit>
             {workProcessInnerScrollEnabled ? (
               <Box>
-                {/* 这一层自己滚自己的：到底就停住，位移不再传导给外层消息区。
-                    内外两套滚动叠在一起时，滚轮一格上百像素，跨层传递会让节奏忽快忽慢。 */}
+                {/* 到边界后的位移交给谁由设置里的「滚到边界继续传递」决定：
+                    关闭时就地停住（contain），开启则走浏览器原生滚动链交给外层消息区。 */}
                 <CustomScrollArea
                   axis="y"
                   hostSx={{ maxHeight: workProcessInnerScrollHeight }}
-                  scrollSx={{ maxHeight: workProcessInnerScrollHeight, pr: 1, overscrollBehavior: 'contain' }}
+                  scrollSx={{
+                    maxHeight: workProcessInnerScrollHeight,
+                    pr: 1,
+                    overscrollBehavior: workProcessInnerScrollChainingEnabled ? 'auto' : 'contain',
+                  }}
                 >
                   <Stack spacing={1.25} sx={{ pt: 1.25 }}>
                     {revealedFlow.slice(range.start, range.end + 1).map(renderRow)}
@@ -370,7 +377,7 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
     }
     for (let index = cursor; index < revealedFlow.length; index++) rows.push(renderRow(revealedFlow[index]))
     return rows
-  }, [revealedFlow, renderRow, manualExpanded, toggleToolProcess, workProcessDisplayEnabled, workProcessDisplayMode, workProcessInnerScrollEnabled, workProcessInnerScrollHeight, workProcessInnerScrollWidth])
+  }, [revealedFlow, renderRow, manualExpanded, toggleToolProcess, workProcessDisplayEnabled, workProcessDisplayMode, workProcessInnerScrollEnabled, workProcessInnerScrollHeight, workProcessInnerScrollWidth, workProcessInnerScrollChainingEnabled])
 
   return (
     <Stack spacing={1.25} useFlexGap sx={{ position: 'relative' }}>

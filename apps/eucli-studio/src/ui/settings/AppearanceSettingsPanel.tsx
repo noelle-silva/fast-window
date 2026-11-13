@@ -28,6 +28,7 @@ import {
   WORK_PROCESS_INNER_SCROLL_WIDTH_STEP,
   normalizeWorkProcessDisplayEnabled,
   normalizeWorkProcessDisplayMode,
+  normalizeWorkProcessInnerScrollChainingEnabled,
   normalizeWorkProcessInnerScrollEnabled,
   normalizeWorkProcessInnerScrollHeight,
   normalizeWorkProcessInnerScrollWidth,
@@ -316,6 +317,9 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
     workProcessInnerScrollWidth,
     normalizeWorkProcessInnerScrollWidth,
     (next) => controller.actions.setWorkProcessInnerScrollWidth?.(next, true),
+  )
+  const workProcessInnerScrollChainingEnabled = normalizeWorkProcessInnerScrollChainingEnabled(
+    (settings as any)?.workProcessInnerScrollChainingEnabled,
   )
   const messageOffscreenSkipEnabled = normalizeMessageOffscreenSkipEnabled(settings?.messageOffscreenSkipEnabled)
   const sessionKeepAliveLimit = normalizeSessionKeepAliveLimit((settings as any)?.sessionKeepAliveLimit)
@@ -971,6 +975,22 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
                   onCommitDraft={workProcessInnerScrollWidthDraft.commitDraft}
                   onValueChange={(value, commit) => controller.actions.setWorkProcessInnerScrollWidth?.(value, commit)}
                 />
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <Box sx={{ minWidth: 0, flex: 1 }}>
+                    <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                      滚到边界继续传递
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      关闭：到边界停住，要滚消息区得把指针移出这一段。开启：到边界后余下的滚动交给消息区。
+                    </Typography>
+                  </Box>
+                  <Switch
+                    size="small"
+                    checked={workProcessInnerScrollChainingEnabled}
+                    onChange={(e) => controller.actions.setWorkProcessInnerScrollChainingEnabled?.(!!e.target.checked)}
+                    disabled={loading}
+                  />
+                </Stack>
               </>
             ) : null}
           </Stack>

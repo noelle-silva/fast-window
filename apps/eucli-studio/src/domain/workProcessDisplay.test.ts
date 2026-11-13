@@ -3,6 +3,7 @@ import {
   DEFAULT_WORK_PROCESS_DISPLAY_MODE,
   normalizeWorkProcessDisplayEnabled,
   normalizeWorkProcessDisplayMode,
+  normalizeWorkProcessInnerScrollChainingEnabled,
   normalizeWorkProcessInnerScrollEnabled,
   normalizeWorkProcessInnerScrollHeight,
   normalizeWorkProcessInnerScrollWidth,
@@ -53,5 +54,13 @@ describe('工作过程显示设置', () => {
     // 100 表示不收窄，是合法值而不是越界。
     expect(normalizeWorkProcessInnerScrollWidth(100)).toBe(100)
     expect(normalizeWorkProcessInnerScrollWidth(72.6)).toBe(73)
+  })
+
+  it('边界传递默认关闭，只有显式开启才打开', () => {
+    expect(normalizeWorkProcessInnerScrollChainingEnabled(undefined)).toBe(false)
+    expect(normalizeWorkProcessInnerScrollChainingEnabled(false)).toBe(false)
+    expect(normalizeWorkProcessInnerScrollChainingEnabled('false')).toBe(false)
+    expect(normalizeWorkProcessInnerScrollChainingEnabled(true)).toBe(true)
+    expect(normalizeWorkProcessInnerScrollChainingEnabled('true')).toBe(true)
   })
 })

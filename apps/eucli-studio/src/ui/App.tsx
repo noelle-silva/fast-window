@@ -58,6 +58,7 @@ import { normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from '
 import {
   normalizeWorkProcessDisplayEnabled,
   normalizeWorkProcessDisplayMode,
+  normalizeWorkProcessInnerScrollChainingEnabled,
   normalizeWorkProcessInnerScrollEnabled,
   normalizeWorkProcessInnerScrollHeight,
   normalizeWorkProcessInnerScrollWidth,
@@ -198,6 +199,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   const workProcessInnerScrollEnabled = normalizeWorkProcessInnerScrollEnabled(data?.settings?.workProcessInnerScrollEnabled)
   const workProcessInnerScrollHeight = normalizeWorkProcessInnerScrollHeight(data?.settings?.workProcessInnerScrollHeight)
   const workProcessInnerScrollWidth = normalizeWorkProcessInnerScrollWidth(data?.settings?.workProcessInnerScrollWidth)
+  const workProcessInnerScrollChainingEnabled = normalizeWorkProcessInnerScrollChainingEnabled(data?.settings?.workProcessInnerScrollChainingEnabled)
   const messageOffscreenSkipEnabled = normalizeMessageOffscreenSkipEnabled(data?.settings?.messageOffscreenSkipEnabled)
   const sessionKeepAliveLimit = normalizeSessionKeepAliveLimit((data?.settings as any)?.sessionKeepAliveLimit)
   const stickersEnabled = !!data?.settings?.stickers?.enabled
@@ -1700,6 +1702,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     workProcessInnerScrollEnabled,
     workProcessInnerScrollHeight,
     workProcessInnerScrollWidth,
+    workProcessInnerScrollChainingEnabled,
     stickersEnabled,
     stickerMap,
     renderSafetyPolicyKey: renderSafetyPolicy,
@@ -1739,6 +1742,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     workProcessInnerScrollEnabled,
     workProcessInnerScrollHeight,
     workProcessInnerScrollWidth,
+    workProcessInnerScrollChainingEnabled,
     stickersEnabled,
     stickerMap,
     renderSafetyPolicy,

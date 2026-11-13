@@ -32,6 +32,7 @@ import { normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from '
 import {
   normalizeWorkProcessDisplayEnabled,
   normalizeWorkProcessDisplayMode,
+  normalizeWorkProcessInnerScrollChainingEnabled,
   normalizeWorkProcessInnerScrollEnabled,
   normalizeWorkProcessInnerScrollHeight,
   normalizeWorkProcessInnerScrollWidth,
@@ -413,6 +414,12 @@ export function createAppearanceActions(deps: {
       if (!state.data) return
       ;(state.data.settings as any).workProcessInnerScrollWidth = normalizeWorkProcessInnerScrollWidth(width)
       if (commit) persistMeta()
+      notifySettings()
+    },
+    setWorkProcessInnerScrollChainingEnabled: (enabled: any) => {
+      if (!state.data) return
+      ;(state.data.settings as any).workProcessInnerScrollChainingEnabled = normalizeWorkProcessInnerScrollChainingEnabled(enabled)
+      persistMeta()
       notifySettings()
     },
     setMessageOffscreenSkipEnabled: (enabled: any) => {

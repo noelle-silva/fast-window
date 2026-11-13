@@ -57,6 +57,7 @@ function createProps(controller: any, message: any) {
     workProcessInnerScrollEnabled: false,
     workProcessInnerScrollHeight: 480,
     workProcessInnerScrollWidth: 80,
+    workProcessInnerScrollChainingEnabled: false,
     stickersEnabled: false,
     stickerMap: {},
     renderSafetyPolicyKey: 'original',

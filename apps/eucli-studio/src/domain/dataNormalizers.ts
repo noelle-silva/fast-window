@@ -30,6 +30,7 @@ import { normalizeReasoningDisplayMode, normalizeReasoningRenderEnabled } from '
 import {
   normalizeWorkProcessDisplayEnabled,
   normalizeWorkProcessDisplayMode,
+  normalizeWorkProcessInnerScrollChainingEnabled,
   normalizeWorkProcessInnerScrollEnabled,
   normalizeWorkProcessInnerScrollHeight,
   normalizeWorkProcessInnerScrollWidth,
@@ -225,6 +226,7 @@ export function normalizeData(raw: any) {
   ;(d.settings as any).workProcessInnerScrollEnabled = normalizeWorkProcessInnerScrollEnabled((d.settings as any).workProcessInnerScrollEnabled)
   ;(d.settings as any).workProcessInnerScrollHeight = normalizeWorkProcessInnerScrollHeight((d.settings as any).workProcessInnerScrollHeight)
   ;(d.settings as any).workProcessInnerScrollWidth = normalizeWorkProcessInnerScrollWidth((d.settings as any).workProcessInnerScrollWidth)
+  ;(d.settings as any).workProcessInnerScrollChainingEnabled = normalizeWorkProcessInnerScrollChainingEnabled((d.settings as any).workProcessInnerScrollChainingEnabled)
   ;(d.settings as any).messageOffscreenSkipEnabled = normalizeMessageOffscreenSkipEnabled((d.settings as any).messageOffscreenSkipEnabled)
   ;(d.settings as any).sessionKeepAliveLimit = normalizeSessionKeepAliveLimit((d.settings as any).sessionKeepAliveLimit)
   ;(d.settings as any).wallpaper = normalizeWallpaperSettings((d.settings as any).wallpaper)

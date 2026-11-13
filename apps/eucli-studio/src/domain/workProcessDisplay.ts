@@ -68,3 +68,12 @@ export function normalizeWorkProcessInnerScrollWidth(raw: unknown): number {
     Math.max(WORK_PROCESS_INNER_SCROLL_WIDTH_MIN, value),
   )
 }
+
+// 到边界后是否把余下的滚动交给外层消息区：默认关闭，到边界就停住。
+// 打开后走浏览器原生的滚动链，与「不接管滚轮」保持一致 —— 我们只切换边界的处理方式，
+// 不给滚动另加一层自己分配的位移。
+export const DEFAULT_WORK_PROCESS_INNER_SCROLL_CHAINING_ENABLED = false
+
+export function normalizeWorkProcessInnerScrollChainingEnabled(raw: unknown): boolean {
+  return raw === true || String(raw ?? '').trim() === 'true'
+}
