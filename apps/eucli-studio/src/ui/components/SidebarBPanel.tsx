@@ -2,6 +2,7 @@ import * as React from 'react'
 import type { SidebarSide } from '../../domain/sidebarLayout'
 import {
   deskAllRefs,
+  hasExpandedDeskGroups,
   normalizeDesks,
   planDeskGroupDisband,
   resolveDeskRows,
@@ -215,7 +216,11 @@ export function SidebarBPanel(props: SidebarBPanelProps) {
     >
       {tab === 'desk' ? (
         <>
-          <DeskToolbar onCreateGroup={() => controller.actions?.createDeskGroup?.()} />
+          <DeskToolbar
+            hasExpandedGroups={hasExpandedDeskGroups(desks)}
+            onCollapseAll={() => controller.actions?.collapseAllDeskGroups?.()}
+            onCreateGroup={() => controller.actions?.createDeskGroup?.()}
+          />
           <DeskChatList
             rows={deskRows}
             desks={desks}

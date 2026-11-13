@@ -21,6 +21,7 @@ export function createDeskActions(deps: { deskOps: any }) {
     renameDeskGroup: (groupId: any, name: any) => deskOps.renameDeskGroup(groupId, name),
     setDeskGroupColor: (groupId: any, color: any) => deskOps.setDeskGroupColor(groupId, color),
     toggleDeskGroupCollapsed: (groupId: any) => deskOps.toggleDeskGroupCollapsed(groupId),
+    collapseAllDeskGroups: () => deskOps.collapseAllDeskGroups(),
     dissolveDeskGroup: (groupId: any) => deskOps.dissolveDeskGroup(groupId),
     removeDeskGroupWithChats: (groupId: any) => deskOps.removeDeskGroupWithChats(groupId),
   }

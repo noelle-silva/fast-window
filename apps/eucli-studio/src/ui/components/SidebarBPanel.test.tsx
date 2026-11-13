@@ -36,6 +36,28 @@ function deskData(refs: any[] = [deskRef(), wsRef]) {
   }
 }
 
+function deskGroupData(collapsed: boolean) {
+  const data = deskData([deskRef()])
+  return {
+    ...data,
+    desks: normalizeDesks({
+      items: [
+        {
+          type: 'group',
+          group: {
+            id: 'g1',
+            name: '分组一',
+            chats: [deskRef()],
+            collapsed,
+            createdAt: 1,
+            updatedAt: 1,
+          },
+        },
+      ],
+    }),
+  }
+}
+
 function createController() {
   return {
     getSnapshot: () => 0,
@@ -284,6 +306,25 @@ describe('侧边栏 B 的工作桌面', () => {
     renderPanel({ data: deskData([]) })
 
     expect(host!.textContent).toContain('桌面上还没有会话')
+  })
+
+  it('工具行的收起全部把动作交给控制器', () => {
+    const calls: string[] = []
+    const controller = createController()
+    controller.actions.collapseAllDeskGroups = () => calls.push('collapse')
+
+    renderPanel({ controller, data: deskGroupData(false) })
+    const button = host!.querySelector('button[aria-label="收起全部"]') as HTMLButtonElement
+    expect(button.disabled).toBe(false)
+
+    act(() => button.click())
+    expect(calls).toEqual(['collapse'])
+  })
+
+  it('没有展开着的分组时收起全部置灰', () => {
+    renderPanel({ data: deskGroupData(true) })
+
+    expect((host!.querySelector('button[aria-label="收起全部"]') as HTMLButtonElement).disabled).toBe(true)
   })
 
   it('没加载过的组合先显示待加载，并按 target 批量预取一次索引', () => {

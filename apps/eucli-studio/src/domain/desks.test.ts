@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeDesks, resolveDeskEntries } from './desks'
+import { collapseAllDeskGroups, hasExpandedDeskGroups, normalizeDesks, resolveDeskEntries } from './desks'
 import { SESSION_REF_PENDING_TITLE } from './sessionRefPlaceholder'
 
 function desksOf(refs: any[]) {
@@ -149,5 +149,57 @@ describe('工作桌面的数据结构', () => {
     })
     expect(resolveDeskEntries(dataOf(), desks).map((entry) => entry.chatId)).toEqual(['top-1'])
     expect(desks.items).toHaveLength(2)
+  })
+})
+
+describe('工作桌面的收起全部', () => {
+  function groupsOf(collapsed: boolean[]) {
+    return normalizeDesks({
+      items: collapsed.map((state, index) => ({
+        type: 'group',
+        group: {
+          id: `g${index + 1}`,
+          name: `分组 ${index + 1}`,
+          chats: [ref('role', 'role-a', '', `in-${index + 1}`)],
+          collapsed: state,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      })),
+    })
+  }
+
+  it('把展开着的分组一次全部收起，组与成员的顺序都不动', () => {
+    const desks = groupsOf([false, true, false])
+    const next = collapseAllDeskGroups(desks)
+
+    expect(next.items.map((item) => (item.type === 'group' ? item.group.collapsed : null))).toEqual([
+      true,
+      true,
+      true,
+    ])
+    expect(next.items.map((item) => (item.type === 'group' ? item.group.id : ''))).toEqual(['g1', 'g2', 'g3'])
+  })
+
+  it('只改展开着的分组：已经收起的那一组保持原对象，不重写时间戳', () => {
+    const desks = groupsOf([false, true])
+    const alreadyCollapsed = desks.items[1]
+
+    const next = collapseAllDeskGroups(desks)
+
+    expect(next.items[1]).toBe(alreadyCollapsed)
+  })
+
+  it('没有展开着的分组时返回原数据，不产出新对象', () => {
+    const desks = groupsOf([true, true])
+
+    expect(collapseAllDeskGroups(desks)).toBe(desks)
+  })
+
+  it('可用口径：还有展开着的分组才为真，空桌面为假', () => {
+    expect(hasExpandedDeskGroups(groupsOf([true, false]))).toBe(true)
+    expect(hasExpandedDeskGroups(groupsOf([true, true]))).toBe(false)
+    expect(hasExpandedDeskGroups(normalizeDesks({ items: [] }))).toBe(false)
+    expect(hasExpandedDeskGroups(null)).toBe(false)
   })
 })

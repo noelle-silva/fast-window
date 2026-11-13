@@ -668,6 +668,22 @@ export function toggleDeskGroupCollapsed(desks: SessionDesks, groupId: unknown):
   return touched ? { items } : desks
 }
 
+/** 一次收起全部分组：只动折叠标记，成员与组在序列里的位置都不变。已经收起的不重写。 */
+export function collapseAllDeskGroups(desks: SessionDesks): SessionDesks {
+  let touched = false
+  const items = desks.items.map((item): DeskItem => {
+    if (item.type !== 'group' || item.group.collapsed) return item
+    touched = true
+    return { type: 'group', group: { ...item.group, collapsed: true, updatedAt: now() } }
+  })
+  return touched ? { items } : desks
+}
+
+/** 「收起全部」按钮的可用口径：桌面上还有展开着的分组。 */
+export function hasExpandedDeskGroups(desks: SessionDesks | null | undefined): boolean {
+  return !!desks && desks.items.some((item) => item.type === 'group' && !item.group.collapsed)
+}
+
 // ---------------------------------------------------------------- 单元与换位
 //
 // 桌面上的每一项都叫「单元」：一条会话，或者一个分组。

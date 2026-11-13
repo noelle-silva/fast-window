@@ -1,6 +1,7 @@
 import { refreshScopes } from '../domain/uiRefreshScope'
 import {
   addDeskRef,
+  collapseAllDeskGroups as collapseAllGroups,
   createDeskGroup as addDeskGroup,
   defaultDesks,
   dissolveDeskGroup as dissolveGroup,
@@ -136,6 +137,14 @@ export function createDeskOperations(deps: {
       const desks = currentDesks()
       if (!desks) return false
       return commit(toggleGroupCollapsed(desks, groupId))
+    },
+    // 一键收起：只写折叠标记；已经全部收起时不碰存储。
+    collapseAllDeskGroups: async () => {
+      const desks = currentDesks()
+      if (!desks) return false
+      const next = collapseAllGroups(desks)
+      if (next === desks) return true
+      return commit(next)
     },
     // 仅解散：组没了，成员留在桌面，摊平到组原来的位置。
     dissolveDeskGroup: async (groupId: any) => {
