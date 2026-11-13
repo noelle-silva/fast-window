@@ -75,6 +75,7 @@ const favoritesStub: React.ComponentProps<typeof SidebarBPanel>['favoritesBrowse
   onCreateFolder: noop,
   onOpenRef: noop,
   onRefContextMenu: noop,
+  onFolderContextMenu: noop,
   onNavigate: noop,
   onReorderFolders: noop,
   onReorderRefs: noop,

@@ -41,6 +41,7 @@ function createProps(overrides: Partial<FavoriteFoldersBrowserProps> = {}): Favo
     onCreateFolder: noop,
     onOpenRef: noop,
     onRefContextMenu: noop,
+    onFolderContextMenu: noop,
     onNavigate: noop,
     onReorderFolders: noop,
     onReorderRefs: noop,
@@ -101,6 +102,28 @@ describe('会话收藏夹层级浏览', () => {
     })
 
     expect(seen).toEqual(['f1'])
+  })
+
+  it('右键子收藏夹把这一条交回上层，不顺手进下一层', () => {
+    const menus: string[] = []
+    const navigated: string[] = []
+    renderBrowser({
+      level: { folders: [{ id: 'f1', name: '甲文件夹' }], refs: [] },
+      onFolderContextMenu: (event, folder) => {
+        event.preventDefault()
+        menus.push(folder.id)
+      },
+      onNavigate: (id) => navigated.push(id),
+    })
+
+    act(() => {
+      ;(host!.querySelector('[role="button"][aria-label="甲文件夹"]') as HTMLElement).dispatchEvent(
+        new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }),
+      )
+    })
+
+    expect(menus).toEqual(['f1'])
+    expect(navigated).toEqual([])
   })
 
   it('点会话把整条引用交回上层', () => {

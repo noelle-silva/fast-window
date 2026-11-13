@@ -5,7 +5,7 @@ import { useSessionSwitch } from './hooks/useSessionSwitch'
 import { useEvent } from './hooks/useEvent'
 import { useFavoriteFolders } from './hooks/useFavoriteFolders'
 import { useFavoriteFolderNavigation } from './hooks/useFavoriteFolderNavigation'
-import type { FavoriteFolderLevelEntry } from '../domain/favoriteFolderLevel'
+import type { FavoriteFolderLevelEntry, FavoriteFolderLevelFolder } from '../domain/favoriteFolderLevel'
 import { useMessageActions } from './hooks/useMessageActions'
 import { useChatTree } from './hooks/useChatTree'
 import { useChatSending } from './hooks/useChatSending'
@@ -379,6 +379,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     setFavoriteChatMenu,
     openCreateFavoriteFolder,
     closeCreateFavoriteFolder,
+    openFavoriteFolderMenu,
     closeFavoriteFolderMenu,
     openRenameFavoriteFolder,
     closeRenameFavoriteFolder,
@@ -1481,6 +1482,10 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
       entry.title,
     )
   })
+  // 侧边栏层里的子收藏夹右键：菜单本体与弹窗的树同源，父级就是当前这一层。
+  const onOpenFavoriteFolderMenu = useEvent((event: React.MouseEvent, folder: FavoriteFolderLevelFolder) => {
+    openFavoriteFolderMenu(event, folder.id, favoriteFolderNav.currentFolderId)
+  })
   const onReorderFavoriteFolders = useEvent((orderedFolderIds: string[]) => {
     controller.actions.reorderFavoriteFolders?.(favoriteFolderNav.currentFolderId, orderedFolderIds)
   })
@@ -1502,6 +1507,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     onCreateFolder: onCreateFavoriteFolderHere,
     onOpenRef: onOpenFavoriteRef,
     onRefContextMenu: onOpenFavoriteRefMenu,
+    onFolderContextMenu: onOpenFavoriteFolderMenu,
     onAddToDesk: addFavoriteRefToDesk,
     onReorderFolders: onReorderFavoriteFolders,
     onReorderRefs: onReorderFavoriteRefs,
@@ -1516,6 +1522,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     onCreateFavoriteFolderHere,
     onOpenFavoriteRef,
     onOpenFavoriteRefMenu,
+    onOpenFavoriteFolderMenu,
     addFavoriteRefToDesk,
     onReorderFavoriteFolders,
     onReorderFavoriteRefs,

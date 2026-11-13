@@ -253,6 +253,16 @@ export function useFavoriteFolders(deps: {
   })
   const closeCreateFavoriteFolder = useEvent(() => setCreateFavoriteFolder({ open: false, parentId: '', name: '' }))
   const closeFavoriteFolderMenu = useEvent(() => setFavoriteFolderMenu({ folderId: '', parentId: '', x: 0, y: 0 }))
+  // 右键一个收藏夹：菜单本体只有一份（ChatContextMenus 认 favoriteFolderMenu 这一条通道），
+  // 弹窗的树与侧边栏的层级浏览都从这里进，不在两个 surface 各写一遍 setState。
+  // parentId 由调用方给：树里是收藏夹自己的父级，层级浏览里就是当前这一层。
+  const openFavoriteFolderMenu = useEvent((event: React.MouseEvent, folderId: string, parentId: string) => {
+    const fid = String(folderId || '')
+    if (!fid) return
+    event.preventDefault()
+    event.stopPropagation()
+    setFavoriteFolderMenu({ folderId: fid, parentId: String(parentId || ''), x: event.clientX, y: event.clientY })
+  })
   const openRenameFavoriteFolder = useEvent((folderId: string) => {
     const fid = String(folderId || '')
     const folder = favoriteFolders.find((f: any) => String(f?.id || '') === fid) || null
@@ -610,12 +620,7 @@ export function useFavoriteFolders(deps: {
             <ListItemButton
               sx={{ ...SOFT_POPOVER_ITEM_SX, pl: 1 + depth2 * 2, pr: 1 }}
               onClick={() => toggleFavoriteFolderExpanded(fid)}
-              onContextMenu={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-                const folderParentId = String(folder?.parentId || '')
-                setFavoriteFolderMenu({ folderId: fid, x: e.clientX, y: e.clientY, parentId: folderParentId })
-              }}
+              onContextMenu={(e) => openFavoriteFolderMenu(e, fid, String(folder?.parentId || ''))}
             >
               {visibleChildren.length || visibleRefs.length ? expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" /> : <Box sx={{ width: 20 }} />}
               <FolderOutlinedIcon sx={{ fontSize: 18, color: 'text.secondary', ml: 0.5, mr: 1 }} />
@@ -645,6 +650,7 @@ export function useFavoriteFolders(deps: {
       resolveFavoriteRef,
       openFavoritedChat,
       toggleFavoriteFolderExpanded,
+      openFavoriteFolderMenu,
     ],
   )
 
@@ -706,6 +712,7 @@ export function useFavoriteFolders(deps: {
     setFavoriteChatMenu,
     openCreateFavoriteFolder,
     closeCreateFavoriteFolder,
+    openFavoriteFolderMenu,
     closeFavoriteFolderMenu,
     openRenameFavoriteFolder,
     closeRenameFavoriteFolder,

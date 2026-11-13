@@ -34,7 +34,13 @@ export type FavoriteFolderLevelEntry = {
   runningKind: string
 }
 
+/** 这一层的子收藏夹：层级浏览只认身份与名字，进入下一层时再按 id 下钻。 */
+export type FavoriteFolderLevelFolder = {
+  id: string
+  name: string
+}
+
 export type FavoriteFolderLevel = {
-  folders: Array<{ id: string; name: string }>
+  folders: FavoriteFolderLevelFolder[]
   refs: FavoriteFolderLevelEntry[]
 }

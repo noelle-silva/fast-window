@@ -7,7 +7,7 @@ import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined'
 import LinkOffRoundedIcon from '@mui/icons-material/LinkOffRounded'
 import { arrayMove } from '@dnd-kit/sortable'
 import { colorMixVar } from '../../colorThemeStyles'
-import type { FavoriteFolderLevel, FavoriteFolderLevelEntry } from '../../../domain/favoriteFolderLevel'
+import type { FavoriteFolderLevel, FavoriteFolderLevelEntry, FavoriteFolderLevelFolder } from '../../../domain/favoriteFolderLevel'
 import { sessionSourceLabel } from '../../../domain/sessionSourceLabel'
 import { ChatSessionRunIndicator, type ChatSessionRunIndicatorKind } from '../ChatSessionRunIndicator'
 import { EntityAvatar } from '../avatar/EntityAvatar'
@@ -55,6 +55,8 @@ export type FavoriteFoldersBrowserProps = {
   onCreateFolder: () => void
   onOpenRef: (ref: FavoriteFolderLevelEntry) => void
   onRefContextMenu: (event: React.MouseEvent, ref: FavoriteFolderLevelEntry) => void
+  /** 子收藏夹的右键：菜单本体与弹窗同源，这里只把「这一个收藏夹」交回去。 */
+  onFolderContextMenu: (event: React.MouseEvent, folder: FavoriteFolderLevelFolder) => void
   onNavigate: (folderId: string) => void
   onReorderFolders: (orderedFolderIds: string[]) => void
   onReorderRefs: (orderedRefKeys: string[]) => void
@@ -140,10 +142,21 @@ function RowShell(props: {
   )
 }
 
-function FolderRow(props: { folder: { id: string; name: string }; sortable: SortableItemRenderArgs; onNavigate: () => void }) {
-  const { folder, sortable, onNavigate } = props
+function FolderRow(props: {
+  folder: FavoriteFolderLevelFolder
+  sortable: SortableItemRenderArgs
+  onNavigate: () => void
+  onContextMenu: (event: React.MouseEvent) => void
+}) {
+  const { folder, sortable, onNavigate, onContextMenu } = props
   return (
-    <RowShell ariaLabel={folder.name} dropTarget={sortable.isDropTarget} sortable={sortable} onActivate={() => onNavigate()}>
+    <RowShell
+      ariaLabel={folder.name}
+      dropTarget={sortable.isDropTarget}
+      sortable={sortable}
+      onActivate={() => onNavigate()}
+      onContextMenu={onContextMenu}
+    >
       <Box
         sx={{
           width: ICON_SIZE,
@@ -257,6 +270,7 @@ export function FavoriteFoldersBrowser(props: FavoriteFoldersBrowserProps) {
     onCreateFolder,
     onOpenRef,
     onRefContextMenu,
+    onFolderContextMenu,
     onNavigate,
     onReorderFolders,
     onReorderRefs,
@@ -336,7 +350,12 @@ export function FavoriteFoldersBrowser(props: FavoriteFoldersBrowserProps) {
             {folders.map((folder) => (
               <SortableItem key={folderItemId(folder.id)} id={folderItemId(folder.id)}>
                 {(sortable) => (
-                  <FolderRow folder={folder} sortable={sortable} onNavigate={() => onNavigate(folder.id)} />
+                  <FolderRow
+                    folder={folder}
+                    sortable={sortable}
+                    onNavigate={() => onNavigate(folder.id)}
+                    onContextMenu={(event) => onFolderContextMenu(event, folder)}
+                  />
                 )}
               </SortableItem>
             ))}
