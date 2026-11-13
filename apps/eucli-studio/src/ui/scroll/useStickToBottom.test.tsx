@@ -67,17 +67,25 @@ function makeScrollBox(el: HTMLDivElement): ScrollBox {
   }
 }
 
-function Harness(props: { box: React.MutableRefObject<ScrollBox | null>; enabled?: boolean }) {
-  const { box, enabled = true } = props
+type StickApi = { atBottom: boolean; scrollToBottom: () => void }
+
+function Harness(props: {
+  box: React.MutableRefObject<ScrollBox | null>
+  api: React.MutableRefObject<StickApi>
+  enabled?: boolean
+}) {
+  const { box, api, enabled = true } = props
   const scrollRef = React.useRef<HTMLDivElement | null>(null)
   const contentRef = React.useRef<HTMLDivElement | null>(null)
-  useStickToBottom({ scrollRef, contentRef, enabled })
+  const { atBottom, scrollToBottom } = useStickToBottom({ scrollRef, contentRef, enabled })
+  api.current = { atBottom, scrollToBottom }
   return (
     <div
       ref={(el) => {
         if (!el) return
         scrollRef.current = el
-        box.current = makeScrollBox(el)
+        // 内联 ref 每次重渲染都会重跑：假滚动盒只在首次建，否则几何会被重置。
+        if (!box.current) box.current = makeScrollBox(el)
       }}
     >
       <div ref={contentRef} />
@@ -89,6 +97,7 @@ describe('useStickToBottom', () => {
   let host: HTMLDivElement | null = null
   let root: any = null
   let box: React.MutableRefObject<ScrollBox | null>
+  let api: React.MutableRefObject<StickApi>
   let frames = new Map<number, FrameRequestCallback>()
   let nextFrameId = 1
 
@@ -109,6 +118,7 @@ describe('useStickToBottom', () => {
     frames = new Map()
     nextFrameId = 1
     box = { current: null }
+    api = { current: { atBottom: true, scrollToBottom: () => {} } }
     vi.stubGlobal('ResizeObserver', FakeResizeObserver)
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
       const id = nextFrameId++
@@ -135,7 +145,7 @@ describe('useStickToBottom', () => {
   })
 
   const mount = (enabled = true) => {
-    act(() => root.render(<Harness box={box} enabled={enabled} />))
+    act(() => root.render(<Harness box={box} api={api} enabled={enabled} />))
     if (!box.current) throw new Error('滚动容器没挂上')
     return box.current
   }
@@ -221,5 +231,30 @@ describe('useStickToBottom', () => {
     act(() => root.unmount())
     root = null
     expect(frames.size).toBe(0)
+  })
+
+  it('上滚后报告不在底部，回底命令把视口送回底部并恢复跟随', () => {
+    const view = mount()
+    expect(api.current.atBottom).toBe(true)
+
+    view.setScrollTop(100)
+    act(() => {
+      view.el.dispatchEvent(new Event('scroll'))
+    })
+    expect(api.current.atBottom).toBe(false)
+
+    act(() => {
+      api.current.scrollToBottom()
+    })
+    expect(view.read()).toBe(300)
+    expect(api.current.atBottom).toBe(true)
+
+    // 恢复跟随后，内容再增长仍然贴住。
+    act(() => {
+      view.setScrollHeight(800)
+      latestObserver().emit()
+    })
+    act(() => flushFrames())
+    expect(view.read()).toBe(600)
   })
 })

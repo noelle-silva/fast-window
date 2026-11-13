@@ -1,5 +1,6 @@
 import * as React from 'react'
-import { Box, type SxProps, type Theme } from '@mui/material'
+import { Box, IconButton, type SxProps, type Theme } from '@mui/material'
+import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward'
 import { customScrollbarHiddenSx, customScrollbarRevealSx } from '../scroll/customScrollbars'
 import { CustomScrollbarThumbs, useCustomScrollbar } from '../scroll/CustomScrollbar'
 import { useStickToBottom } from '../scroll/useStickToBottom'
@@ -12,6 +13,8 @@ export type CustomScrollAreaProps = {
   showThumbs?: boolean
   // 内容增长时贴住底部跟随；用户上滚即让位，滚回底部再恢复。自滚区域用，默认关闭。
   stickToBottom?: boolean
+  // 配合 stickToBottom：离底部时在右下角浮出圆形的回底按钮（纯图标，无障碍名「回到最新」）。
+  backToBottom?: boolean
   hostSx?: SxProps<Theme>
   scrollSx?: SxProps<Theme>
   contentSx?: SxProps<Theme>
@@ -26,12 +29,13 @@ function sxList(value?: SxProps<Theme>) {
 }
 
 export const CustomScrollArea = React.forwardRef<HTMLDivElement, CustomScrollAreaProps>(function CustomScrollArea(props, forwardedRef) {
-  const { children, axis = 'both', showThumbs = true, stickToBottom = false, hostSx, scrollSx, contentSx, className, onClick, onScrollPositionChange } = props
+  const { children, axis = 'both', showThumbs = true, stickToBottom = false, backToBottom, hostSx, scrollSx, contentSx, className, onClick, onScrollPositionChange } = props
   const scrollRef = React.useRef<HTMLDivElement | null>(null)
   const contentRef = React.useRef<HTMLDivElement | null>(null)
 
   const { metrics, dragging, beginDrag } = useCustomScrollbar({ scrollRef, contentRef, axis, onScrollPositionChange })
-  useStickToBottom({ scrollRef, contentRef, enabled: stickToBottom })
+  const { atBottom, scrollToBottom } = useStickToBottom({ scrollRef, contentRef, enabled: stickToBottom })
+  const showBackToBottom = Boolean(backToBottom) && stickToBottom && !atBottom
 
   React.useImperativeHandle(forwardedRef, () => scrollRef.current as HTMLDivElement, [])
 
@@ -68,6 +72,35 @@ export const CustomScrollArea = React.forwardRef<HTMLDivElement, CustomScrollAre
       </Box>
 
       {showThumbs ? <CustomScrollbarThumbs metrics={metrics} dragging={dragging} onBeginDrag={beginDrag} /> : null}
+
+      {showBackToBottom ? (
+        <IconButton
+          size="small"
+          aria-label="回到最新"
+          onClick={scrollToBottom}
+          sx={{
+            position: 'absolute',
+            right: 12,
+            bottom: 12,
+            zIndex: 4,
+            width: 32,
+            height: 32,
+            bgcolor: 'var(--studio-primary)',
+            color: '#fff',
+            // 平时压得很淡、几乎不占视线；指到或键盘聚焦时才完全显形。
+            opacity: 0.42,
+            transition: 'opacity 140ms ease, box-shadow 140ms ease',
+            boxShadow: '0 4px 12px color-mix(in srgb, var(--studio-text-primary) 12%, transparent)',
+            '&:hover, &:focus-visible': {
+              opacity: 1,
+              bgcolor: 'var(--studio-primary)',
+              boxShadow: '0 8px 20px color-mix(in srgb, var(--studio-text-primary) 26%, transparent)',
+            },
+          }}
+        >
+          <ArrowDownwardIcon sx={{ fontSize: 18 }} />
+        </IconButton>
+      ) : null}
     </Box>
   )
 })

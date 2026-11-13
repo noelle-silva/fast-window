@@ -349,10 +349,11 @@ export const ChatMessageList = React.memo(function ChatMessageList(props: ChatMe
               <Box>
                 {/* 到边界后的位移交给谁由设置里的「滚到边界继续传递」决定：
                     关闭时就地停住（contain），开启则走浏览器原生滚动链交给外层消息区。
-                    贴底时跟着新输出继续贴住，用户上滚即让位，不用手追。 */}
+                    贴底时跟着新输出继续贴住，用户上滚即让位并在右下角浮出回底按钮。 */}
                 <CustomScrollArea
                   axis="y"
                   stickToBottom
+                  backToBottom
                   hostSx={{ maxHeight: workProcessInnerScrollHeight }}
                   scrollSx={{
                     maxHeight: workProcessInnerScrollHeight,
