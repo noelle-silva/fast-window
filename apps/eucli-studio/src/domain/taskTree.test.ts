@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   applyTaskDraft,
+  archivedTaskEntries,
   moveTaskInLayer,
   normalizeTaskTree,
   resolveTaskPath,
+  shiftTaskStatus,
   taskById,
   taskDraftIsDirty,
   taskDraftOf,
@@ -13,6 +15,7 @@ import {
   taskSiblingLayer,
   taskSubtreeIds,
   UNNAMED_TASK_LABEL,
+  VISIBLE_TASK_STATUSES,
   type TaskNode,
 } from './taskTree'
 
@@ -23,6 +26,7 @@ function node(id: string, children: TaskNode[] = [], name = ''): TaskNode {
     description: '',
     content: '',
     copyHighlight: false,
+    status: 'todo',
     children,
     createdAt: '',
     updatedAt: '',
@@ -53,6 +57,13 @@ describe('normalizeTaskTree', () => {
     expect(normalizeTaskTree({ tasks: [{ id: 'a' }] }).tasks[0].copyHighlight).toBe(false)
     expect(normalizeTaskTree({ tasks: [{ id: 'a', copyHighlight: true }] }).tasks[0].copyHighlight).toBe(true)
     expect(normalizeTaskTree({ tasks: [{ id: 'a', copyHighlight: 'true' }] }).tasks[0].copyHighlight).toBe(false)
+  })
+
+  // 状态四态：缺省与认不出的值都落到「未开始」，其余原样保留。
+  it('normalizes the progress status to one of the four states', () => {
+    expect(normalizeTaskTree({ tasks: [{ id: 'a' }] }).tasks[0].status).toBe('todo')
+    expect(normalizeTaskTree({ tasks: [{ id: 'a', status: 'ghost' }] }).tasks[0].status).toBe('todo')
+    expect(normalizeTaskTree({ tasks: [{ id: 'a', status: 'archived' }] }).tasks[0].status).toBe('archived')
   })
 
   it('falls back to a readable label when the name is empty', () => {
@@ -94,6 +105,48 @@ describe('tree lookups', () => {
   })
 })
 
+describe('archivedTaskEntries', () => {
+  it('collects archived nodes across layers with their ancestor trail', () => {
+    const tree = normalizeTaskTree({
+      tasks: [
+        {
+          id: 'a',
+          name: '甲',
+          status: 'archived',
+          children: [{ id: 'a1', name: '甲一', status: 'archived' }],
+        },
+        { id: 'b', name: '乙' },
+      ],
+    })
+
+    const entries = archivedTaskEntries(tree)
+    expect(entries.map((entry) => entry.node.id)).toEqual(['a', 'a1'])
+    expect(entries.map((entry) => entry.trail)).toEqual([[], ['甲']])
+  })
+
+  it('returns nothing when no task is archived', () => {
+    expect(archivedTaskEntries(TREE)).toEqual([])
+  })
+})
+
+describe('shiftTaskStatus', () => {
+  it('cycles through the three visible states in both directions', () => {
+    expect(shiftTaskStatus('todo', 1)).toBe('doing')
+    expect(shiftTaskStatus('done', 1)).toBe('todo')
+    expect(shiftTaskStatus('todo', -1)).toBe('done')
+    expect(shiftTaskStatus('doing', -1)).toBe('todo')
+    expect(shiftTaskStatus('done', 5)).toBe('doing')
+  })
+
+  // 归档是显式动作，不参与左右箭头的循环。
+  it('never lands on the archived state', () => {
+    for (const status of VISIBLE_TASK_STATUSES) {
+      expect(shiftTaskStatus(status, 1)).not.toBe('archived')
+      expect(shiftTaskStatus(status, -1)).not.toBe('archived')
+    }
+  })
+})
+
 describe('moveTaskInLayer', () => {
   it('moves one step and refuses to leave the layer', () => {
     expect(moveTaskInLayer(['a', 'b', 'c'], 'b', -1)).toEqual(['b', 'a', 'c'])
@@ -128,6 +181,7 @@ describe('draft', () => {
       description: '备注',
       content: '正文',
       copyHighlight: true,
+      status: 'doing',
     })
     expect(next.tasks[0].children[0]).toMatchObject({
       id: 'a1',
@@ -135,9 +189,10 @@ describe('draft', () => {
       description: '备注',
       content: '正文',
       copyHighlight: true,
+      status: 'doing',
     })
     // 同层的兄弟与上一级都不跟着变。
-    expect(next.tasks[0].children[1]).toMatchObject({ id: 'a2', name: '甲二', copyHighlight: false })
+    expect(next.tasks[0].children[1]).toMatchObject({ id: 'a2', name: '甲二', copyHighlight: false, status: 'todo' })
     expect(next.tasks[1].name).toBe('乙')
   })
 
@@ -148,16 +203,18 @@ describe('draft', () => {
       description: '',
       content: '',
       copyHighlight: true,
+      status: 'todo',
     })
     expect(taskDraftOf(null)).toBeNull()
   })
 
   it('reports dirty only for real field changes', () => {
     const current = node('a', [], '甲')
-    const draft = { id: 'a', name: '甲', description: '', content: '', copyHighlight: false }
+    const draft = { id: 'a', name: '甲', description: '', content: '', copyHighlight: false, status: 'todo' as const }
     expect(taskDraftIsDirty(current, draft)).toBe(false)
     expect(taskDraftIsDirty(current, { ...draft, name: '甲 ' })).toBe(true)
     expect(taskDraftIsDirty(current, { ...draft, copyHighlight: true })).toBe(true)
+    expect(taskDraftIsDirty(current, { ...draft, status: 'done' })).toBe(true)
     expect(taskDraftIsDirty(current, { ...draft, id: 'other' })).toBe(false)
     expect(taskDraftIsDirty(null, null)).toBe(false)
   })

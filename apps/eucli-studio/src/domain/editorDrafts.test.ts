@@ -9,7 +9,7 @@ let seq = 0
 const uniqueOwner = () => `owner-${++seq}`
 
 function taskDraft(id: string, name: string): TaskDraft {
-  return { id, name, description: '', content: '', copyHighlight: false }
+  return { id, name, description: '', content: '', copyHighlight: false, status: 'todo' }
 }
 
 function promptEntry(id: string, name: string): PromptEntry {

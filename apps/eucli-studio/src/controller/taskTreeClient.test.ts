@@ -28,6 +28,7 @@ function node(id: string): TaskNode {
     description: '',
     content: '',
     copyHighlight: false,
+    status: 'todo',
     children: [],
     createdAt: '',
     updatedAt: '',

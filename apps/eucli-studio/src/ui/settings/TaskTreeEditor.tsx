@@ -1,19 +1,24 @@
 import * as React from 'react'
 import { Box, IconButton, Stack, Switch, TextField, Tooltip, Typography } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
+import ArchiveOutlinedIcon from '@mui/icons-material/ArchiveOutlined'
 import ContentCopyIcon from '@mui/icons-material/ContentCopy'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import DriveFileMoveOutlinedIcon from '@mui/icons-material/DriveFileMoveOutlined'
 import SaveIcon from '@mui/icons-material/Save'
 import { MoreActionsMenu } from '../components/MoreActionsMenu'
 import { FillTextarea } from '../components/FillTextarea'
+import { TaskStatusPicker } from './TaskStatusPicker'
+import { TaskStatusStepper } from './TaskStatusStepper'
 import { UNNAMED_TASK_LABEL, type TaskDraft } from '../../domain/taskTree'
 
-// 当前节点的编辑位：名字 / 描述 / 可复制文本，加上这一层能做的全部动作。
+// 当前节点的编辑位：名字 / 状态 / 描述 / 可复制文本，加上这一层能做的全部动作。
 // 只负责画与回调，脏判断、保存与结构动作由面板决定。
 //
 // 保存、复制、移动到名字右侧，只占图标；
-// 描述右侧是「复制高亮」开关：它只影响卡片上复制键的配色，是展示标记；
+// 名字与描述之间单独一行放状态切换与「复制高亮」开关：
+// 状态决定卡片右下角的进度标签，高亮决定卡片上复制键的配色，都只是展示标记；
+// 归档页复用同一个编辑位，但状态换成三态恢复选择，结构动作（新建子任务、移动）不参与；
 // 可复制文本吃满剩余高度并在框内自滚，外层不再整列滚动，滑块用项目自制的那一套。
 
 const FILLED_SECONDARY_SX = {
@@ -37,14 +42,32 @@ export function TaskTreeEditor(props: {
   saving: boolean
   canCopy: boolean
   hasChildren: boolean
+  /** 归档页里的编辑位：状态改成三态恢复选择，结构动作不参与。 */
+  archived?: boolean
   onDraftChange: (patch: Partial<TaskDraft>) => void
   onSave: () => void
   onCopy: () => void
   onMove: () => void
   onCreateChild: () => void
+  onArchive: () => void
   onDelete: () => void
 }) {
-  const { draft, label, dirty, saving, canCopy, hasChildren, onDraftChange, onSave, onCopy, onMove, onCreateChild, onDelete } = props
+  const {
+    draft,
+    label,
+    dirty,
+    saving,
+    canCopy,
+    hasChildren,
+    archived = false,
+    onDraftChange,
+    onSave,
+    onCopy,
+    onMove,
+    onCreateChild,
+    onArchive,
+    onDelete,
+  } = props
 
   return (
     <Box
@@ -87,23 +110,41 @@ export function TaskTreeEditor(props: {
         >
           <ContentCopyIcon fontSize="small" />
         </IconButton>
-        <IconButton
-          size="small"
-          aria-label="移动任务"
-          onClick={onMove}
-          sx={{ ...FILLED_SECONDARY_SX, borderRadius: 1.5 }}
-        >
-          <DriveFileMoveOutlinedIcon fontSize="small" />
-        </IconButton>
+        {archived ? null : (
+          <IconButton
+            size="small"
+            aria-label="移动任务"
+            onClick={onMove}
+            sx={{ ...FILLED_SECONDARY_SX, borderRadius: 1.5 }}
+          >
+            <DriveFileMoveOutlinedIcon fontSize="small" />
+          </IconButton>
+        )}
         <MoreActionsMenu
           ariaLabel="任务操作"
           items={[
-            {
-              key: 'create-child',
-              label: '新建子任务',
-              icon: <AddIcon fontSize="small" />,
-              onSelect: onCreateChild,
-            },
+            ...(archived
+              ? []
+              : [
+                  {
+                    key: 'create-child',
+                    label: '新建子任务',
+                    icon: <AddIcon fontSize="small" />,
+                    onSelect: onCreateChild,
+                  },
+                  {
+                    key: 'archive',
+                    label: '归档',
+                    icon: <ArchiveOutlinedIcon fontSize="small" />,
+                    confirm: {
+                      title: `归档「${label}」？`,
+                      description: '归档后这张卡片不再出现在任务墙，数据会保留，可以从顶部栏的归档页找回来。',
+                      confirmLabel: '归档',
+                      tone: 'primary' as const,
+                    },
+                    onSelect: onArchive,
+                  },
+                ]),
             {
               key: 'delete',
               label: '删除',
@@ -120,28 +161,22 @@ export function TaskTreeEditor(props: {
         />
       </Stack>
 
-      <Stack direction="row" spacing={1.25} alignItems="flex-start">
-        <TextField
-          size="small"
-          label="描述"
-          multiline
-          minRows={2}
-          value={draft?.description ?? ''}
-          onChange={(event) => onDraftChange({ description: event.target.value })}
-          sx={{ flex: 1, minWidth: 0 }}
-        />
-        {/* 卡片墙上的复制键要不要用主题色标出来：只改外观，不动复制内容与复制行为。 */}
+      {/* 状态与复制高亮同一行：前者决定卡片右下角标签，后者决定卡片复制键配色。 */}
+      <Stack direction="row" spacing={1.25} alignItems="center">
+        {archived ? (
+          <TaskStatusPicker
+            value={draft?.status ?? 'todo'}
+            onChange={(next) => onDraftChange({ status: next })}
+          />
+        ) : (
+          <TaskStatusStepper
+            value={draft?.status ?? 'todo'}
+            onChange={(next) => onDraftChange({ status: next })}
+          />
+        )}
+        <Box sx={{ flex: 1 }} />
         <Tooltip title="开启后，卡片上的复制键用主题色标出">
-          <Box
-            sx={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              width: 58,
-              flexShrink: 0,
-              pt: 0.25,
-            }}
-          >
+          <Stack direction="row" spacing={0.5} alignItems="center">
             <Switch
               size="small"
               checked={Boolean(draft?.copyHighlight)}
@@ -150,13 +185,22 @@ export function TaskTreeEditor(props: {
             />
             <Typography
               component="span"
-              sx={{ fontSize: 11, lineHeight: '14px', color: 'var(--studio-text-tertiary)', whiteSpace: 'nowrap' }}
+              sx={{ fontSize: 11.5, lineHeight: '16px', color: 'var(--studio-text-tertiary)', whiteSpace: 'nowrap' }}
             >
               复制高亮
             </Typography>
-          </Box>
+          </Stack>
         </Tooltip>
       </Stack>
+
+      <TextField
+        size="small"
+        label="描述"
+        multiline
+        minRows={2}
+        value={draft?.description ?? ''}
+        onChange={(event) => onDraftChange({ description: event.target.value })}
+      />
 
       <FillTextarea
         label="可复制文本"

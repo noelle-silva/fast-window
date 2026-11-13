@@ -13,6 +13,7 @@ import {
   type Theme,
 } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
+import ArchiveOutlinedIcon from '@mui/icons-material/ArchiveOutlined'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import DriveFileMoveOutlinedIcon from '@mui/icons-material/DriveFileMoveOutlined'
@@ -28,9 +29,11 @@ import {
   TASK_SCOPES,
   TASK_SCOPE_LABELS,
   applyTaskDraft,
+  archivedTaskEntries,
   createTaskId,
   moveTaskInLayer,
   resolveTaskPath,
+  taskById,
   taskDraftIsDirty,
   taskDraftOf,
   taskLabel,
@@ -39,6 +42,7 @@ import {
   taskPathIds,
   taskSiblingLayer,
   taskSubtreeIds,
+  type ArchivedTaskEntry,
   type TaskDraft,
   type TaskNode,
   type TaskScope,
@@ -128,6 +132,9 @@ export function TaskTreePanel(props: TaskTreePanelProps) {
   const [copiedId, setCopiedId] = React.useState('')
   const [moveTarget, setMoveTarget] = React.useState<TaskNode | null>(null)
   const [moveParentId, setMoveParentId] = React.useState('')
+  /** 归档页：与层级浏览并列的第二个视图，切过去不改变原来的层级位置。 */
+  const [archiveView, setArchiveView] = React.useState(false)
+  const [archivedSelectedId, setArchivedSelectedId] = React.useState('')
 
   const ownerOptions = scope === 'role' ? roles : workspaces
   const ownerIds = React.useMemo(
@@ -146,6 +153,8 @@ export function TaskTreePanel(props: TaskTreePanelProps) {
         (nextScope === 'role' ? text(preferredOwnerIds.role) : text(preferredOwnerIds.workspace)),
     )
     setPathIds(remembered.pathIds || [])
+    setArchiveView(false)
+    setArchivedSelectedId('')
   }
 
   const callAction = React.useCallback(
@@ -190,6 +199,22 @@ export function TaskTreePanel(props: TaskTreePanelProps) {
   const path = React.useMemo(() => resolveTaskPath(tree, pathIds), [tree, pathIds])
   const current = path.length ? path[path.length - 1] : null
   const layerNodes = React.useMemo(() => taskLayerNodes(tree, path), [tree, path])
+  // 归档任务不出卡片，数据仍留在树里：改回状态就能重新出现。
+  const visibleNodes = React.useMemo(
+    () => layerNodes.filter((node) => node.status !== 'archived'),
+    [layerNodes],
+  )
+
+  // 归档页把整棵树里的归档节点摊平；路径前缀用来区分不同层级的同名任务。
+  const archivedEntries = React.useMemo(() => archivedTaskEntries(tree), [tree])
+  // 选中的归档任务必须仍处于归档状态：恢复之后它就从归档页消失，编辑位跟着收起。
+  const archivedSelected = React.useMemo(() => {
+    if (!archiveView || !archivedSelectedId) return null
+    const node = taskById(tree, archivedSelectedId)
+    return node && node.status === 'archived' ? node : null
+  }, [archiveView, archivedSelectedId, tree])
+  /** 编辑位面对的那个节点：正常视图是当前层级节点，归档页是被选中的归档节点。 */
+  const editingNode = archiveView ? archivedSelected : current
 
   // 路径里被删掉的那一段会在解析时截断，这里把状态同步成截断后的真实路径。
   // 树还没对齐时不能校正：那一刻解析出来的是空路径，会把刚恢复的浏览位置抹掉——
@@ -202,12 +227,12 @@ export function TaskTreePanel(props: TaskTreePanelProps) {
   // 换节点时先看有没有没保存的草稿：有就接着改，没有才用服务端这份。
   // 依赖只认节点 id：树里别的节点变了不该把正在改的内容冲掉。
   React.useEffect(() => {
-    if (!current) {
+    if (!editingNode) {
       setDraft(null)
       return
     }
-    setDraft(readTaskDraft(scope, activeOwnerId, current.id) ?? taskDraftOf(current))
-  }, [current?.id, scope, activeOwnerId])
+    setDraft(readTaskDraft(scope, activeOwnerId, editingNode.id) ?? taskDraftOf(editingNode))
+  }, [editingNode?.id, scope, activeOwnerId])
 
   // 改到一半的文字随手写进草稿缓存：换层级、关模态窗都不会丢。
   const onDraftChange = React.useCallback(
@@ -228,7 +253,7 @@ export function TaskTreePanel(props: TaskTreePanelProps) {
     onBrowseStateChange(scope, { ownerId: activeOwnerId, pathIds })
   }, [scope, activeOwnerId, pathIds, onBrowseStateChange])
 
-  const dirty = taskDraftIsDirty(current, draft)
+  const dirty = taskDraftIsDirty(editingNode, draft)
   // enterPrefix 是新节点落脚层的路径前缀：建完直接进到它这一层，左栏就是它的编辑位。
   const callCreate = async (parentId: string, enterPrefix: string[]) => {
     const node: TaskNode = {
@@ -237,6 +262,7 @@ export function TaskTreePanel(props: TaskTreePanelProps) {
       description: '',
       content: '',
       copyHighlight: false,
+      status: 'todo',
       children: [],
       createdAt: '',
       updatedAt: '',
@@ -259,7 +285,7 @@ export function TaskTreePanel(props: TaskTreePanelProps) {
   }
 
   const saveDraft = async () => {
-    if (!current || !draft || !dirty) return
+    if (!editingNode || !draft || !dirty) return
     setSaving(true)
     try {
       const saved = await callAction<TaskTree>('saveTaskTree', scope, activeOwnerId, applyTaskDraft(tree, draft))
@@ -272,6 +298,28 @@ export function TaskTreePanel(props: TaskTreePanelProps) {
     }
   }
 
+  // 归档是动作而不是字段编辑：菜单里确认之后直接落库，不等「保存」。
+  // 同时丢掉这个节点残留的草稿，免得下次进来把归档状态又覆盖回去。
+  const archiveTask = async (node: TaskNode) => {
+    const base = taskDraftOf(node)
+    if (!base) return
+    setLoading(true)
+    try {
+      const saved = await callAction<TaskTree>(
+        'saveTaskTree',
+        scope,
+        activeOwnerId,
+        applyTaskDraft(tree, { ...base, status: 'archived' }),
+      )
+      setTree(saved)
+      dropTaskDraft(scope, activeOwnerId, node.id)
+    } catch (error: any) {
+      notify(text(error?.message) || '归档任务失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const removeTask = async (node: TaskNode) => {
     const depth = pathIds.indexOf(node.id)
     setLoading(true)
@@ -279,6 +327,7 @@ export function TaskTreePanel(props: TaskTreePanelProps) {
       const saved = await callAction<TaskTree>('deleteTaskNode', scope, activeOwnerId, node.id)
       setTree(saved)
       if (depth >= 0) setPathIds(pathIds.slice(0, depth))
+      setArchivedSelectedId((previousId) => (previousId === node.id ? '' : previousId))
     } catch (error: any) {
       notify(text(error?.message) || '删除任务失败')
     } finally {
@@ -354,6 +403,18 @@ export function TaskTreePanel(props: TaskTreePanelProps) {
         onSelect: () => openMove(node),
       },
       {
+        key: 'archive',
+        label: '归档',
+        icon: <ArchiveOutlinedIcon fontSize="small" />,
+        confirm: {
+          title: `归档「${taskLabel(node)}」？`,
+          description: '归档后这张卡片不再出现在任务墙，数据会保留，可以从顶部栏的归档页找回来。',
+          confirmLabel: '归档',
+          tone: 'primary',
+        },
+        onSelect: () => void archiveTask(node),
+      },
+      {
         key: 'up',
         label: '上移',
         disabled: index <= 0,
@@ -391,6 +452,7 @@ export function TaskTreePanel(props: TaskTreePanelProps) {
       title={taskLabel(node)}
       description={node.description}
       copyHighlight={node.copyHighlight}
+      status={node.status}
       copied={copiedId === node.id}
       canCopy={Boolean(node.content.trim())}
       menuItems={cardMenu(node)}
@@ -399,10 +461,158 @@ export function TaskTreePanel(props: TaskTreePanelProps) {
     />
   )
 
+  // 归档页的卡片：点开就在左栏恢复状态；菜单只留删除，
+  // 在归档上下文里不做新建子任务 / 移动这类结构动作。
+  const archivedCardMenu = (node: TaskNode): MoreActionsMenuItem[] => [
+    {
+      key: 'delete',
+      label: '删除',
+      danger: true,
+      icon: <DeleteOutlineIcon fontSize="small" />,
+      confirm: {
+        title: `删除「${taskLabel(node)}」？`,
+        description: node.children.length ? '它的整棵子树会一起删除，删掉不可恢复。' : '删掉不可恢复。',
+        confirmLabel: '删除',
+      },
+      onSelect: () => void removeTask(node),
+    },
+  ]
+
+  const renderArchivedCard = (entry: ArchivedTaskEntry) => (
+    <TaskTreeCard
+      key={entry.node.id}
+      title={taskLabel(entry.node)}
+      description={entry.node.description}
+      trail={entry.trail.join(' / ')}
+      copyHighlight={entry.node.copyHighlight}
+      status={entry.node.status}
+      copied={copiedId === entry.node.id}
+      canCopy={Boolean(entry.node.content.trim())}
+      menuItems={archivedCardMenu(entry.node)}
+      onOpen={() => setArchivedSelectedId(entry.node.id)}
+      onCopy={() => void copyContent(entry.node)}
+    />
+  )
+
+  // 卡片墙的内容与空态随视图切换：归档页是整棵树的扁平清单，正常视图是当前层。
+  const wallContent = archiveView ? archivedEntries.map(renderArchivedCard) : visibleNodes.map(renderCard)
+  const wallEmptyMessage = archiveView
+    ? '还没有归档的任务'
+    : !ownerIds.length
+      ? scope === 'role'
+        ? '还没有角色，先去「角色管理」新建一个。'
+        : '还没有工作区，先去「工作区管理」新建一个。'
+      : layerNodes.length
+        ? '这一层的任务都已归档'
+        : '这一层还没有任务'
+
   return (
     <SettingsSurface sx={{ height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', gap: 1.25 }}>
-      {/* 顶部行：面包屑在左，归属下拉固定在右；设置页多出来的作用域切换夹在两者之间。 */}
+      {/* 顶部栏：左侧是归档入口（归档页里换成返回 + 标题），右侧是归属下拉与新建按钮；
+          设置页多出来的作用域切换也在左侧。模态窗锁定了作用域，这一行就是它的顶部栏。 */}
       <Stack direction="row" spacing={1.25} alignItems="center">
+        {lockedScope ? null : (
+          <Box sx={{ display: 'flex', gap: 0.5, p: 0.5, borderRadius: 2, bgcolor: 'var(--studio-field)', width: 240, flexShrink: 0 }}>
+            {TASK_SCOPES.map((value) => {
+              const active = scope === value
+              return (
+                <Button
+                  key={value}
+                  fullWidth
+                  size="small"
+                  disableElevation
+                  variant="contained"
+                  onClick={() => switchScope(value)}
+                  sx={active ? { borderRadius: 1.5, fontWeight: 700, py: 0.5 } : [{ borderRadius: 1.5, fontWeight: 700, py: 0.5 }, FILLED_SECONDARY_SX]}
+                >
+                  {TASK_SCOPE_LABELS[value]}
+                </Button>
+              )
+            })}
+          </Box>
+        )}
+
+        {archiveView ? (
+          <Stack direction="row" spacing={0.75} alignItems="center">
+            <IconButton
+              size="small"
+              aria-label="返回任务层级"
+              onClick={() => setArchiveView(false)}
+              sx={{ ...FILLED_SECONDARY_SX, borderRadius: 1.5 }}
+            >
+              <ArrowBackIcon fontSize="small" />
+            </IconButton>
+            <Typography
+              component="span"
+              variant="body2"
+              sx={{ fontWeight: 700, color: 'var(--studio-text-primary)', whiteSpace: 'nowrap' }}
+            >
+              归档任务
+            </Typography>
+          </Stack>
+        ) : (
+          <Button
+            size="small"
+            disableElevation
+            variant="contained"
+            startIcon={<ArchiveOutlinedIcon fontSize="small" />}
+            onClick={() => {
+              setArchiveView(true)
+              setArchivedSelectedId('')
+            }}
+            sx={{ borderRadius: 1.5, fontWeight: 700, py: 0.5, ...FILLED_SECONDARY_SX }}
+          >
+            归档
+          </Button>
+        )}
+
+        <Box sx={{ flex: 1 }} />
+
+        <Box sx={{ width: 220, flexShrink: 0 }}>
+          <FormControl size="small" fullWidth>
+            <InputLabel id="task-tree-owner-label">{scope === 'role' ? '选择角色' : '选择工作区'}</InputLabel>
+            <Select
+              labelId="task-tree-owner-label"
+              label={scope === 'role' ? '选择角色' : '选择工作区'}
+              value={activeOwnerId}
+              onChange={(event) => {
+                setOwnerId(String(event.target.value))
+                // 换归属等于换一棵树，回到根层、也回到正常视图。
+                setPathIds([])
+                setArchiveView(false)
+                setArchivedSelectedId('')
+              }}
+            >
+              {ownerOptions.map((item: any) => (
+                <MenuItem key={text(item?.id)} value={text(item?.id)}>
+                  {text(item?.name) || text(item?.id)}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </Box>
+
+        {archiveView ? null : (
+          <IconButton
+            size="small"
+            aria-label="新建任务"
+            onClick={createInCurrentLayer}
+            disabled={loading || !activeOwnerId}
+            sx={{
+              borderRadius: 1.5,
+              bgcolor: 'primary.main',
+              color: '#fff',
+              '&:hover': { bgcolor: 'primary.dark' },
+            }}
+          >
+            <AddIcon fontSize="small" />
+          </IconButton>
+        )}
+      </Stack>
+
+      {/* 面包屑行：返回按钮与当前层级路径。归档页自成一层，不需要路径。 */}
+      {archiveView ? null : (
+        <Stack direction="row" spacing={1.25} alignItems="center">
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, flex: 1 }}>
           <IconButton
             size="small"
@@ -460,65 +670,8 @@ export function TaskTreePanel(props: TaskTreePanelProps) {
             })}
           </Box>
         </Box>
-
-        {lockedScope ? null : (
-          <Box sx={{ display: 'flex', gap: 0.5, p: 0.5, borderRadius: 2, bgcolor: 'var(--studio-field)', width: 240, flexShrink: 0 }}>
-            {TASK_SCOPES.map((value) => {
-              const active = scope === value
-              return (
-                <Button
-                  key={value}
-                  fullWidth
-                  size="small"
-                  disableElevation
-                  variant="contained"
-                  onClick={() => switchScope(value)}
-                  sx={active ? { borderRadius: 1.5, fontWeight: 700, py: 0.5 } : [{ borderRadius: 1.5, fontWeight: 700, py: 0.5 }, FILLED_SECONDARY_SX]}
-                >
-                  {TASK_SCOPE_LABELS[value]}
-                </Button>
-              )
-            })}
-          </Box>
-        )}
-
-        <Box sx={{ width: 220, flexShrink: 0 }}>
-          <FormControl size="small" fullWidth>
-            <InputLabel id="task-tree-owner-label">{scope === 'role' ? '选择角色' : '选择工作区'}</InputLabel>
-            <Select
-              labelId="task-tree-owner-label"
-              label={scope === 'role' ? '选择角色' : '选择工作区'}
-              value={activeOwnerId}
-              onChange={(event) => {
-                setOwnerId(String(event.target.value))
-                // 换归属等于换一棵树，回到根层。
-                setPathIds([])
-              }}
-            >
-              {ownerOptions.map((item: any) => (
-                <MenuItem key={text(item?.id)} value={text(item?.id)}>
-                  {text(item?.name) || text(item?.id)}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-        </Box>
-
-        <IconButton
-          size="small"
-          aria-label="新建任务"
-          onClick={createInCurrentLayer}
-          disabled={loading || !activeOwnerId}
-          sx={{
-            borderRadius: 1.5,
-            bgcolor: 'primary.main',
-            color: '#fff',
-            '&:hover': { bgcolor: 'primary.dark' },
-          }}
-        >
-          <AddIcon fontSize="small" />
-        </IconButton>
-      </Stack>
+        </Stack>
+      )}
 
       <Box
         sx={{
@@ -527,35 +680,37 @@ export function TaskTreePanel(props: TaskTreePanelProps) {
           display: 'grid',
           gap: 2,
           alignItems: 'stretch',
-          gridTemplateColumns: current ? { xs: '1fr', lg: '320px minmax(0, 1fr)' } : 'minmax(0, 1fr)',
+          gridTemplateColumns: editingNode ? { xs: '1fr', lg: '320px minmax(0, 1fr)' } : 'minmax(0, 1fr)',
         }}
       >
-        {current ? (
+        {editingNode ? (
           <TaskTreeEditor
             draft={draft}
-            label={taskLabel(current)}
+            label={taskLabel(editingNode)}
             dirty={dirty}
             saving={saving}
-            canCopy={Boolean(current.content.trim())}
-            hasChildren={current.children.length > 0}
+            canCopy={Boolean(editingNode.content.trim())}
+            hasChildren={editingNode.children.length > 0}
+            archived={archiveView}
             onDraftChange={onDraftChange}
             onSave={() => void saveDraft()}
-            onCopy={() => void copyContent(current)}
-            onMove={() => openMove(current)}
-            onCreateChild={() => void callCreate(current.id, pathIds)}
-            onDelete={() => void removeTask(current)}
+            onCopy={() => void copyContent(editingNode)}
+            onMove={() => openMove(editingNode)}
+            onCreateChild={() => void callCreate(editingNode.id, pathIds)}
+            onArchive={() => void archiveTask(editingNode)}
+            onDelete={() => void removeTask(editingNode)}
           />
         ) : null}
 
         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, minHeight: 0 }}>
-          {layerNodes.length ? (
+          {wallContent.length ? (
             <CustomScrollArea
               axis="y"
               hostSx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}
               scrollSx={{ flex: 1, minHeight: 0 }}
               contentSx={TASK_WALL_CONTENT_SX}
             >
-              {layerNodes.map(renderCard)}
+              {wallContent}
             </CustomScrollArea>
           ) : (
             <Box
@@ -570,13 +725,7 @@ export function TaskTreePanel(props: TaskTreePanelProps) {
                 color: 'var(--studio-text-tertiary)',
               }}
             >
-              <Typography variant="body2">
-                {!ownerIds.length
-                  ? scope === 'role'
-                    ? '还没有角色，先去「角色管理」新建一个。'
-                    : '还没有工作区，先去「工作区管理」新建一个。'
-                  : '这一层还没有任务'}
-              </Typography>
+              <Typography variant="body2">{wallEmptyMessage}</Typography>
             </Box>
           )}
         </Box>

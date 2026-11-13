@@ -15,6 +15,8 @@ export type MoreActionsMenuItem = {
     title: string
     description?: React.ReactNode
     confirmLabel?: string
+    /** 确认按钮语气：危险动作（默认）用错误色，中性动作用主题色。 */
+    tone?: 'danger' | 'primary'
   }
   /**
    * anchor 是「更多」按钮元素：菜单关闭后 MenuItem 会被卸载，
@@ -115,7 +117,11 @@ export function MoreActionsMenu(props: MoreActionsMenuProps) {
         ) : null}
         <DialogActions>
           <Button onClick={() => setPendingConfirm(null)}>取消</Button>
-          <Button color="error" variant="contained" onClick={confirmPending}>
+          <Button
+            color={pendingConfirm?.confirm?.tone === 'primary' ? 'primary' : 'error'}
+            variant="contained"
+            onClick={confirmPending}
+          >
             {pendingConfirm?.confirm?.confirmLabel || '删除'}
           </Button>
         </DialogActions>

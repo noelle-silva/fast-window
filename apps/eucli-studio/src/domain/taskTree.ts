@@ -12,6 +12,24 @@ export const TASK_SCOPE_LABELS: Record<TaskScope, string> = {
   workspace: '工作区任务',
 }
 
+// 任务进度四态。归档只影响卡片墙是否展示该任务，数据完整保留。
+export type TaskStatus = 'todo' | 'doing' | 'done' | 'archived'
+
+export const TASK_STATUSES: readonly TaskStatus[] = ['todo', 'doing', 'done', 'archived']
+
+export const TASK_STATUS_LABELS: Record<TaskStatus, string> = {
+  todo: '未开始',
+  doing: '进行中',
+  done: '已完成',
+  archived: '归档',
+}
+
+/**
+ * 切换按钮与编辑位只在三态之间走：归档是显式动作（更多菜单 + 二次确认），
+ * 不混进左右箭头的循环里。
+ */
+export const VISIBLE_TASK_STATUSES: readonly Exclude<TaskStatus, 'archived'>[] = ['todo', 'doing', 'done']
+
 export type TaskNode = {
   id: string
   name: string
@@ -19,6 +37,7 @@ export type TaskNode = {
   content: string
   /** 卡片展示标记：开启后这一层的复制键用主题色标出；不影响复制的内容与行为。 */
   copyHighlight: boolean
+  status: TaskStatus
   children: TaskNode[]
   createdAt: string
   updatedAt: string
@@ -28,13 +47,14 @@ export type TaskTree = {
   tasks: TaskNode[]
 }
 
-/** 编辑中的节点副本：只包含人改得动的四个字段。 */
+/** 编辑中的节点副本：只包含人改得动的五个字段。 */
 export type TaskDraft = {
   id: string
   name: string
   description: string
   content: string
   copyHighlight: boolean
+  status: TaskStatus
 }
 
 export const EMPTY_TASK_TREE: TaskTree = { tasks: [] }
@@ -46,6 +66,21 @@ function text(value: unknown) {
   return String(value ?? '').trim()
 }
 
+/** 状态只认四态；缺省（旧数据没有这个字段）与认不出的值都落到「未开始」。 */
+export function normalizeTaskStatus(raw: unknown): TaskStatus {
+  const status = text(raw)
+  return (TASK_STATUSES as readonly string[]).includes(status) ? (status as TaskStatus) : 'todo'
+}
+
+/** 按三态顺序循环切换：归档不参与，到头会绕回去。 */
+export function shiftTaskStatus(status: TaskStatus, delta: number): TaskStatus {
+  const picker: readonly TaskStatus[] = VISIBLE_TASK_STATUSES
+  const index = picker.indexOf(status)
+  const base = index < 0 ? 0 : index
+  const size = picker.length
+  return picker[(((base + delta) % size) + size) % size]
+}
+
 export function normalizeTaskNode(raw: any): TaskNode {
   return {
     id: text(raw?.id),
@@ -54,6 +89,7 @@ export function normalizeTaskNode(raw: any): TaskNode {
     content: String(raw?.content ?? ''),
     // 只认真正的布尔真值：旧数据没有这个字段，读出来就是关闭。
     copyHighlight: raw?.copyHighlight === true,
+    status: normalizeTaskStatus(raw?.status),
     children: Array.isArray(raw?.children) ? raw.children.map(normalizeTaskNode) : [],
     createdAt: text(raw?.createdAt),
     updatedAt: text(raw?.updatedAt),
@@ -112,6 +148,27 @@ export function taskById(tree: TaskTree, taskId: string): TaskNode | null {
   return walk(tree.tasks)
 }
 
+// ---------------------------------------------------------------- 归档
+
+/** 归档清单里的一条：节点本体 + 祖先链路的名字，用来在扁平列表里区分同名任务。 */
+export type ArchivedTaskEntry = {
+  node: TaskNode
+  trail: string[]
+}
+
+/** 收集整棵树里所有归档节点，按树的先序排列。 */
+export function archivedTaskEntries(tree: TaskTree): ArchivedTaskEntry[] {
+  const entries: ArchivedTaskEntry[] = []
+  const walk = (nodes: TaskNode[], trail: string[]) => {
+    for (const node of nodes) {
+      if (node.status === 'archived') entries.push({ node, trail })
+      walk(node.children, [...trail, taskLabel(node)])
+    }
+  }
+  walk(tree.tasks, [])
+  return entries
+}
+
 // ---------------------------------------------------------------- 草稿
 
 export function taskDraftOf(node: TaskNode | null | undefined): TaskDraft | null {
@@ -122,6 +179,7 @@ export function taskDraftOf(node: TaskNode | null | undefined): TaskDraft | null
     description: node.description,
     content: node.content,
     copyHighlight: node.copyHighlight,
+    status: node.status,
   }
 }
 
@@ -131,11 +189,12 @@ export function taskDraftIsDirty(node: TaskNode | null | undefined, draft: TaskD
     node.name !== draft.name ||
     node.description !== draft.description ||
     node.content !== draft.content ||
-    node.copyHighlight !== draft.copyHighlight
+    node.copyHighlight !== draft.copyHighlight ||
+    node.status !== draft.status
   )
 }
 
-/** 把草稿的四个字段写回树里的同 id 节点，其余部分原样保留。 */
+/** 把草稿的五个字段写回树里的同 id 节点，其余部分原样保留。 */
 export function applyTaskDraft(tree: TaskTree, draft: TaskDraft): TaskTree {
   const walk = (nodes: TaskNode[]): TaskNode[] =>
     nodes.map((node) => {
@@ -146,6 +205,7 @@ export function applyTaskDraft(tree: TaskTree, draft: TaskDraft): TaskTree {
           description: draft.description,
           content: draft.content,
           copyHighlight: draft.copyHighlight,
+          status: draft.status,
         }
       }
       if (!node.children.length) return node
