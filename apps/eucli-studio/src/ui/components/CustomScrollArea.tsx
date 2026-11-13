@@ -2,6 +2,7 @@ import * as React from 'react'
 import { Box, type SxProps, type Theme } from '@mui/material'
 import { customScrollbarHiddenSx, customScrollbarRevealSx } from '../scroll/customScrollbars'
 import { CustomScrollbarThumbs, useCustomScrollbar } from '../scroll/CustomScrollbar'
+import { useStickToBottom } from '../scroll/useStickToBottom'
 
 export type CustomScrollAreaProps = {
   children: React.ReactNode
@@ -9,6 +10,8 @@ export type CustomScrollAreaProps = {
   axis?: 'both' | 'y'
   // 关掉自制滑块：容器照样能滚，只是不画滚动条（原生滚动条本来就一直藏着）。
   showThumbs?: boolean
+  // 内容增长时贴住底部跟随；用户上滚即让位，滚回底部再恢复。自滚区域用，默认关闭。
+  stickToBottom?: boolean
   hostSx?: SxProps<Theme>
   scrollSx?: SxProps<Theme>
   contentSx?: SxProps<Theme>
@@ -23,11 +26,12 @@ function sxList(value?: SxProps<Theme>) {
 }
 
 export const CustomScrollArea = React.forwardRef<HTMLDivElement, CustomScrollAreaProps>(function CustomScrollArea(props, forwardedRef) {
-  const { children, axis = 'both', showThumbs = true, hostSx, scrollSx, contentSx, className, onClick, onScrollPositionChange } = props
+  const { children, axis = 'both', showThumbs = true, stickToBottom = false, hostSx, scrollSx, contentSx, className, onClick, onScrollPositionChange } = props
   const scrollRef = React.useRef<HTMLDivElement | null>(null)
   const contentRef = React.useRef<HTMLDivElement | null>(null)
 
   const { metrics, dragging, beginDrag } = useCustomScrollbar({ scrollRef, contentRef, axis, onScrollPositionChange })
+  useStickToBottom({ scrollRef, contentRef, enabled: stickToBottom })
 
   React.useImperativeHandle(forwardedRef, () => scrollRef.current as HTMLDivElement, [])
 
