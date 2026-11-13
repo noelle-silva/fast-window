@@ -893,8 +893,10 @@ export function DeskChatList(props: {
             fixed 就会退化成相对那个祖先定位，再被祖先的 overflow 裁掉 ——
             表现就是「鼠标一捏，手上什么都没有」。
             portal 到 body，祖先怎么变都影响不到它。
+
+            dropAnimation 用默认值：松手后浮层从手上平滑滑到落点再消失。
           */}
-          {createPortal(<DragOverlay dropAnimation={null}>{overlay}</DragOverlay>, document.body)}
+          {createPortal(<DragOverlay>{overlay}</DragOverlay>, document.body)}
         </DndContext>
       ) : null}
     </Box>
