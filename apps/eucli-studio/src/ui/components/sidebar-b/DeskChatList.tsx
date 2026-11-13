@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { createPortal } from 'react-dom'
 import { Box, IconButton, Tooltip, Typography } from '@mui/material'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined'
@@ -885,8 +886,15 @@ export function DeskChatList(props: {
             )}
           </SortableContext>
 
-          {/* 浮层挂在列表外面：列表会裁掉超出的内容，挂在里面手上的那份就看不见了。 */}
-          <DragOverlay dropAnimation={null}>{overlay}</DragOverlay>
+          {/*
+            浮层挂到 body 上。
+            DragOverlay 默认渲染在原来的位置，靠 position: fixed 脱离文档流；
+            一旦祖先链上出现 transform / filter / will-change / contain，
+            fixed 就会退化成相对那个祖先定位，再被祖先的 overflow 裁掉 ——
+            表现就是「鼠标一捏，手上什么都没有」。
+            portal 到 body，祖先怎么变都影响不到它。
+          */}
+          {createPortal(<DragOverlay dropAnimation={null}>{overlay}</DragOverlay>, document.body)}
         </DndContext>
       ) : null}
     </Box>
