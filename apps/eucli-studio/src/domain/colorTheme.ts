@@ -133,6 +133,23 @@ export const COLOR_THEME_SETTING_KEY = 'colorTheme'
 
 export const COLOR_THEME_BUILTIN_PRESETS: ColorThemePreset[] = [
   {
+    id: 'moss-green',
+    name: '苔林绿',
+    description: '偏自然的绿色工作台，强调安静、护眼和稳定阅读。',
+    mode: 'light',
+    baseColors: {
+      background: '#edf7ef',
+      surface: '#fbfff7',
+      surfaceCode: '#e6f2ea',
+      primary: '#4f7f5b',
+      secondary: '#0f766e',      text: '#17351f',
+      border: 'rgba(23,53,31,.14)',
+      success: '#16a34a',
+      warning: '#ca8a04',
+      danger: '#dc2626',
+    },
+  },
+  {
     id: 'misty-blue',
     name: '晨雾蓝',
     description: '清透、低饱和的浅色工作台，适合长时间阅读和日常对话。',
@@ -181,23 +198,6 @@ export const COLOR_THEME_BUILTIN_PRESETS: ColorThemePreset[] = [
       success: '#10b981',
       warning: '#f59e0b',
       danger: '#fb7185',
-    },
-  },
-  {
-    id: 'moss-green',
-    name: '苔林绿',
-    description: '偏自然的绿色工作台，强调安静、护眼和稳定阅读。',
-    mode: 'light',
-    baseColors: {
-      background: '#edf7ef',
-      surface: '#fbfff7',
-      surfaceCode: '#e6f2ea',
-      primary: '#4f7f5b',
-      secondary: '#0f766e',      text: '#17351f',
-      border: 'rgba(23,53,31,.14)',
-      success: '#16a34a',
-      warning: '#ca8a04',
-      danger: '#dc2626',
     },
   },
   {
