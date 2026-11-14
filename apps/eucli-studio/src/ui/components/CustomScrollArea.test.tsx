@@ -54,10 +54,24 @@ function makeScrollable(el: HTMLElement) {
   }
 }
 
-function Harness(props: { backToBottom?: boolean; stickToBottom?: boolean }) {
-  const { backToBottom, stickToBottom = true } = props
+type ScrollView = ReturnType<typeof makeScrollable>
+
+function Harness(props: {
+  view: React.MutableRefObject<ScrollView | null>
+  backToBottom?: boolean
+  stickToBottom?: boolean
+}) {
+  const { view, backToBottom, stickToBottom = true } = props
+  // 假几何挂在 ref 阶段：和真实布局一样，早于贴底 hook 的初始化读取。
+  const attach = React.useCallback(
+    (el: HTMLDivElement | null) => {
+      if (!el || view.current) return
+      view.current = makeScrollable(el)
+    },
+    [view],
+  )
   return (
-    <CustomScrollArea axis="y" stickToBottom={stickToBottom} backToBottom={backToBottom}>
+    <CustomScrollArea ref={attach} axis="y" stickToBottom={stickToBottom} backToBottom={backToBottom}>
       <div />
     </CustomScrollArea>
   )
@@ -66,6 +80,7 @@ function Harness(props: { backToBottom?: boolean; stickToBottom?: boolean }) {
 describe('CustomScrollArea 的回底按钮', () => {
   let host: HTMLDivElement | null = null
   let root: any = null
+  let view: React.MutableRefObject<ScrollView | null>
   let frames = new Map<number, FrameRequestCallback>()
   let nextFrameId = 1
 
@@ -76,10 +91,11 @@ describe('CustomScrollArea 的回底按钮', () => {
   }
 
   const mount = (props: { backToBottom?: boolean; stickToBottom?: boolean }) => {
-    act(() => root.render(<Harness {...props} />))
+    act(() => root.render(<Harness view={view} {...props} />))
     const area = host!.firstElementChild as HTMLElement
     const scroll = area.firstElementChild as HTMLElement
-    return { area, scroll, view: makeScrollable(scroll) }
+    if (!view.current) throw new Error('假滚动盒没挂上')
+    return { area, scroll, view: view.current }
   }
 
   const button = () => host!.querySelector('button[aria-label="回到最新"]') as HTMLButtonElement | null
@@ -88,6 +104,7 @@ describe('CustomScrollArea 的回底按钮', () => {
     FakeResizeObserver.instances = []
     frames = new Map()
     nextFrameId = 1
+    view = { current: null }
     vi.stubGlobal('ResizeObserver', FakeResizeObserver)
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
       const id = nextFrameId++

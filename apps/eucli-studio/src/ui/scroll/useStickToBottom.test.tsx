@@ -67,7 +67,7 @@ function makeScrollBox(el: HTMLDivElement): ScrollBox {
   }
 }
 
-type StickApi = { atBottom: boolean; scrollToBottom: () => void }
+type StickApi = { following: boolean; scrollToBottom: () => void }
 
 function Harness(props: {
   box: React.MutableRefObject<ScrollBox | null>
@@ -77,8 +77,8 @@ function Harness(props: {
   const { box, api, enabled = true } = props
   const scrollRef = React.useRef<HTMLDivElement | null>(null)
   const contentRef = React.useRef<HTMLDivElement | null>(null)
-  const { atBottom, scrollToBottom } = useStickToBottom({ scrollRef, contentRef, enabled })
-  api.current = { atBottom, scrollToBottom }
+  const { following, scrollToBottom } = useStickToBottom({ scrollRef, contentRef, enabled })
+  api.current = { following, scrollToBottom }
   return (
     <div
       ref={(el) => {
@@ -118,7 +118,7 @@ describe('useStickToBottom', () => {
     frames = new Map()
     nextFrameId = 1
     box = { current: null }
-    api = { current: { atBottom: true, scrollToBottom: () => {} } }
+    api = { current: { following: true, scrollToBottom: () => {} } }
     vi.stubGlobal('ResizeObserver', FakeResizeObserver)
     vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
       const id = nextFrameId++
@@ -235,19 +235,19 @@ describe('useStickToBottom', () => {
 
   it('上滚后报告不在底部，回底命令把视口送回底部并恢复跟随', () => {
     const view = mount()
-    expect(api.current.atBottom).toBe(true)
+    expect(api.current.following).toBe(true)
 
     view.setScrollTop(100)
     act(() => {
       view.el.dispatchEvent(new Event('scroll'))
     })
-    expect(api.current.atBottom).toBe(false)
+    expect(api.current.following).toBe(false)
 
     act(() => {
       api.current.scrollToBottom()
     })
     expect(view.read()).toBe(300)
-    expect(api.current.atBottom).toBe(true)
+    expect(api.current.following).toBe(true)
 
     // 恢复跟随后，内容再增长仍然贴住。
     act(() => {
@@ -256,5 +256,111 @@ describe('useStickToBottom', () => {
     })
     act(() => flushFrames())
     expect(view.read()).toBe(600)
+  })
+
+  // 下面这条对应实机上「输出着输出着就不贴底了」：
+  // 程序性贴底写进去之后，内容还在长，浏览器派发这次滚动的 scroll 事件时
+  // 量到的离底距离已经超过阈值 —— 它不是用户上滚，不能把跟随判丢。
+  it('贴底写入之后内容又长高，迟到的滚动事件不许取消跟随', () => {
+    const view = mount()
+    view.setScrollTop(300)
+    act(() => {
+      view.el.dispatchEvent(new Event('scroll'))
+    })
+
+    // 内容长高 → 观测器把吸附排到下一帧，写入后视口贴在底部。
+    view.setScrollHeight(700)
+    act(() => {
+      latestObserver().emit()
+    })
+    act(() => flushFrames())
+    expect(view.read()).toBe(500)
+
+    // 派发这次写入的滚动事件时，流式输出又长高了一截：量到离底 60px。
+    view.setScrollHeight(760)
+    act(() => {
+      view.el.dispatchEvent(new Event('scroll'))
+    })
+
+    // 跟随权还在：下一次增高继续贴住。
+    view.setScrollHeight(900)
+    act(() => {
+      latestObserver().emit()
+    })
+    act(() => flushFrames())
+    expect(view.read()).toBe(700)
+  })
+
+  it('连续多帧高速输出，每一帧的滚动事件都不夺走跟随', () => {
+    const view = mount()
+    view.setScrollTop(300)
+    act(() => {
+      view.el.dispatchEvent(new Event('scroll'))
+    })
+
+    for (let step = 1; step <= 6; step++) {
+      // 一帧之内：内容先长高，观测器排好吸附，浏览器随后派发上一笔写入的滚动事件，
+      // 最后才轮到这一帧的吸附执行。
+      view.setScrollHeight(500 + step * 120)
+      act(() => {
+        latestObserver().emit()
+        view.el.dispatchEvent(new Event('scroll'))
+      })
+      act(() => flushFrames())
+    }
+
+    view.setScrollHeight(1600)
+    act(() => {
+      latestObserver().emit()
+    })
+    act(() => flushFrames())
+    expect(view.read()).toBe(1400)
+  })
+
+  it('跟随中量到离底时，滚动事件当场把视口补回底部', () => {
+    const view = mount()
+    view.setScrollTop(300)
+    act(() => {
+      view.el.dispatchEvent(new Event('scroll'))
+    })
+
+    // 高度变化没落到观测目标上：只剩滚动事件这一条通道，也要把视口补回去。
+    view.setScrollHeight(740)
+    act(() => {
+      view.el.dispatchEvent(new Event('scroll'))
+    })
+    act(() => flushFrames())
+    expect(view.read()).toBe(540)
+  })
+
+  it('内容收缩把视口夹小，不算用户上滚', () => {
+    const view = mount()
+    view.setScrollTop(300)
+    act(() => {
+      view.el.dispatchEvent(new Event('scroll'))
+    })
+
+    view.setScrollHeight(900)
+    act(() => {
+      latestObserver().emit()
+    })
+    act(() => flushFrames())
+    expect(view.read()).toBe(700)
+
+    // 上方内容收缩 200：scrollHeight 900 → 700，浏览器把 scrollTop 夹回 500。
+    view.setScrollHeight(700)
+    view.setScrollTop(500)
+    act(() => {
+      view.el.dispatchEvent(new Event('scroll'))
+    })
+    expect(api.current.following).toBe(true)
+
+    // 收缩之后继续输出，仍然贴着底部走。
+    view.setScrollHeight(1000)
+    act(() => {
+      latestObserver().emit()
+    })
+    act(() => flushFrames())
+    expect(view.read()).toBe(800)
   })
 })

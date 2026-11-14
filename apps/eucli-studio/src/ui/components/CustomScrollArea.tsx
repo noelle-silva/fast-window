@@ -34,8 +34,8 @@ export const CustomScrollArea = React.forwardRef<HTMLDivElement, CustomScrollAre
   const contentRef = React.useRef<HTMLDivElement | null>(null)
 
   const { metrics, dragging, beginDrag } = useCustomScrollbar({ scrollRef, contentRef, axis, onScrollPositionChange })
-  const { atBottom, scrollToBottom } = useStickToBottom({ scrollRef, contentRef, enabled: stickToBottom })
-  const showBackToBottom = Boolean(backToBottom) && stickToBottom && !atBottom
+  const { following, scrollToBottom } = useStickToBottom({ scrollRef, contentRef, enabled: stickToBottom })
+  const showBackToBottom = Boolean(backToBottom) && stickToBottom && !following
 
   React.useImperativeHandle(forwardedRef, () => scrollRef.current as HTMLDivElement, [])
 
@@ -61,6 +61,9 @@ export const CustomScrollArea = React.forwardRef<HTMLDivElement, CustomScrollAre
             minHeight: 0,
             overflowY: 'auto',
             overflowX: axis === 'y' ? 'hidden' : 'auto',
+            // 跟底时把滚动位置的控制权收回来：浏览器的滚动锚定会在上方内容变化时
+            // 自作主张改写 scrollTop，看起来就像用户往上滚了一截，跟随会被误判成让位。
+            ...(stickToBottom ? { overflowAnchor: 'none' } : null),
             ...customScrollbarHiddenSx,
           },
           ...sxList(scrollSx),
