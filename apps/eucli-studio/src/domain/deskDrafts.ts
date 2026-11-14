@@ -3,6 +3,8 @@
 // 会话真实建立（发送后拿到 chatId）时，把它转成正式引用写进后端桌面数据，同时从这里摘掉；
 // 客户端重启后这里自然是空的，临时条目随之消失，这是预期行为。
 
+import { resolveDeskTargetMeta, type DeskTargetMeta } from './desks'
+
 export type DeskDraftTargetKind = 'role' | 'group' | 'workspace'
 
 export type DeskDraft = {
@@ -93,4 +95,15 @@ export function resetDeskDrafts(): void {
   if (!drafts.length) return
   drafts = []
   bump()
+}
+
+/** 草稿条目：草稿本身 + 目标信息（名字 / 头像 / 工作区图标），解析口径与正式条目同一份。 */
+export type DeskDraftEntry = DeskDraft & DeskTargetMeta
+
+/**
+ * 把内存里的草稿补成可直接渲染的条目。
+ * 草稿还没拿到会话，但图标与来源一样该显示出来——用的就是正式条目那份解析。
+ */
+export function resolveDeskDraftEntries(data: unknown, source: readonly DeskDraft[]): DeskDraftEntry[] {
+  return source.map((draft) => ({ ...draft, ...resolveDeskTargetMeta(data, draft) }))
 }

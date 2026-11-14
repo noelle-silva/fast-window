@@ -337,14 +337,22 @@ function findRole(data: any, roleId: string): any {
   return (Array.isArray(data?.roles) ? data.roles : []).find((it: any) => String(it?.id || '') === roleId) || null
 }
 
-function targetMetaOf(data: any, ref: any) {
+/** 目标信息（名字 / 头像 / 工作区图标）：正式条目与桌面临时条目共用这一套解析。 */
+export type DeskTargetMeta = {
+  targetName: string
+  roleName: string
+  avatarImage: string
+  roleAvatarImage: string
+}
+
+export function resolveDeskTargetMeta(data: any, ref: any): DeskTargetMeta {
   if (ref.targetKind === 'workspace') {
     const workspace = (Array.isArray(data?.workspaces) ? data.workspaces : []).find(
       (it: any) => String(it?.id || '') === ref.targetId,
     )
     const role = findRole(data, ref.roleId)
     return {
-      name: String(workspace?.name || '工作区'),
+      targetName: String(workspace?.name || '工作区'),
       roleName: String(role?.name || ''),
       avatarImage: workspaceIconImageSrc(workspace?.icon),
       roleAvatarImage: String(role?.avatarImage || ''),
@@ -353,7 +361,7 @@ function targetMetaOf(data: any, ref: any) {
   if (ref.targetKind === 'group') {
     const group = (Array.isArray(data?.groups) ? data.groups : []).find((it: any) => String(it?.id || '') === ref.targetId)
     return {
-      name: String(group?.name || '群聊'),
+      targetName: String(group?.name || '群聊'),
       roleName: '',
       avatarImage: String(group?.avatarImage || ''),
       roleAvatarImage: '',
@@ -361,7 +369,7 @@ function targetMetaOf(data: any, ref: any) {
   }
   const role = findRole(data, ref.targetId)
   return {
-    name: String(role?.name || '角色'),
+    targetName: String(role?.name || '角色'),
     roleName: '',
     avatarImage: String(role?.avatarImage || ''),
     roleAvatarImage: '',
@@ -374,7 +382,7 @@ export function resolveDeskEntry(data: any, ref: DeskChatRef): DeskEntry | null 
   if (!key) return null
   const box = chatBoxOf(data, ref)
   const chat = chatListItemsOfBox(box).find((it: any) => String(it?.id || '') === ref.chatId)
-  const meta = targetMetaOf(data, ref)
+  const meta = resolveDeskTargetMeta(data, ref)
   const status: DeskEntryStatus = chat ? 'loaded' : 'pending'
   return {
     targetKind: ref.targetKind,
@@ -388,7 +396,7 @@ export function resolveDeskEntry(data: any, ref: DeskChatRef): DeskEntry | null 
       status === 'loaded'
         ? String(chat?.title || '').trim() || chatFallbackTitle(ref.targetKind)
         : SESSION_REF_PENDING_TITLE,
-    targetName: meta.name,
+    targetName: meta.targetName,
     roleName: meta.roleName,
     avatarImage: meta.avatarImage,
     roleAvatarImage: meta.roleAvatarImage,
