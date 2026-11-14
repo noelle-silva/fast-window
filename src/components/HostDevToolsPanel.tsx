@@ -1,6 +1,11 @@
-import { useState } from 'react'
-import { Box, Button, CircularProgress, Stack, TextField, Typography } from '@mui/material'
+import { useEffect, useState } from 'react'
+import { Box, Button, Chip, CircularProgress, Stack, TextField, Typography } from '@mui/material'
 import { publishHostRelease, type HostReleaseBump } from '../host/hostDevActions'
+import {
+  loadDevConsoleServerStatus,
+  openDevConsole,
+  type DevConsoleServerStatus,
+} from '../devConsole/devConsoleApi'
 import { IS_HOST_DEV_PROFILE } from '../hostProfile'
 import { hostToast } from '../host/hostPrimitives'
 import { hostButtonSx, hostTextFieldSx } from './hostUiStyles'
@@ -26,8 +31,27 @@ function normalizeVersionInput(value: string): string {
 export default function HostDevToolsPanel({ panelSx }: HostDevToolsPanelProps) {
   const [publishing, setPublishing] = useState(false)
   const [versionInput, setVersionInput] = useState('')
+  const [openingConsole, setOpeningConsole] = useState(false)
+  const [serverStatus, setServerStatus] = useState<DevConsoleServerStatus | null>(null)
+
+  useEffect(() => {
+    void loadDevConsoleServerStatus()
+      .then(setServerStatus)
+      .catch(() => setServerStatus(null))
+  }, [])
 
   if (!IS_HOST_DEV_PROFILE) return null
+
+  async function openConsole() {
+    setOpeningConsole(true)
+    try {
+      await openDevConsole()
+    } catch (error: any) {
+      toast(String(error?.message || error || '打开 Dev 控制台失败'))
+    } finally {
+      setOpeningConsole(false)
+    }
+  }
 
   async function runPublishBump(bump: HostReleaseBump) {
     setPublishing(true)
@@ -69,6 +93,42 @@ export default function HostDevToolsPanel({ panelSx }: HostDevToolsPanelProps) {
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
           仅 dev 宿主显示。命令会打开可见终端执行，结束后 5 秒自动关闭。
         </Typography>
+      </Box>
+
+      <Box sx={theme => ({ ...panelSx(theme), display: 'flex', flexDirection: 'column', gap: 1 })}>
+        <Box>
+          <Typography variant="body2" sx={{ fontWeight: 700 }}>
+            Dev 控制台
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+            独立窗口，输入短命令调度宿主下的应用；同时开放本地脚本入口。
+          </Typography>
+        </Box>
+
+        <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+          <Button
+            size="small"
+            variant="contained"
+            disabled={openingConsole}
+            onClick={() => void openConsole()}
+            sx={hostButtonSx}
+          >
+            打开 Dev 控制台
+          </Button>
+          <Chip
+            size="small"
+            variant="outlined"
+            color={serverStatus?.listening ? 'success' : serverStatus?.error ? 'error' : 'default'}
+            label={
+              serverStatus?.listening
+                ? `脚本入口 127.0.0.1:${serverStatus.port}`
+                : serverStatus?.error
+                  ? '脚本入口启动失败'
+                  : '脚本入口未启动'
+            }
+            title={serverStatus?.error}
+          />
+        </Stack>
       </Box>
 
       <Box sx={theme => ({ ...panelSx(theme), display: 'flex', flexDirection: 'column', gap: 1 })}>
