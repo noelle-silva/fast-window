@@ -22,6 +22,31 @@ pub(crate) struct AppLifecycleManager {
     processes: Mutex<HashMap<String, Arc<AppProcessEntry>>>,
 }
 
+impl AppLifecycleManager {
+    /// 当前仍在运行的已登记应用 id。
+    ///
+    /// 这是「一键全停」唯一的目标来源：只认宿主自己拉起、且尚未退出的进程，
+    /// 不向系统反查同名外部进程。
+    pub(crate) fn running_app_ids(&self) -> Vec<String> {
+        let Ok(guard) = self.processes.lock() else {
+            eprintln!("[app-launcher] failed to lock process state while listing running apps");
+            return Vec::new();
+        };
+
+        guard
+            .iter()
+            .filter_map(|(id, entry)| match entry_is_running(entry) {
+                Ok(true) => Some(id.clone()),
+                Ok(false) => None,
+                Err(error) => {
+                    eprintln!("[app-launcher] failed to read exit status for {id}: {error}");
+                    None
+                }
+            })
+            .collect()
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AppColdStartPolicy {
     Allow,
@@ -88,7 +113,8 @@ enum AppRuntimeMessage {
     Ignore,
 }
 
-enum AppStopMode {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum AppStopMode {
     Graceful,
     Force,
 }
@@ -532,7 +558,7 @@ pub(crate) struct AppStatusResult {
     pub exit_code: Option<i32>,
 }
 
-#[derive(Clone, Copy, Serialize)]
+#[derive(Clone, Copy, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) enum AppStopMethod {
     AlreadyStopped,
@@ -991,7 +1017,7 @@ pub(crate) async fn app_force_stop(
     app_stop_with_mode(state.inner(), app_id, AppStopMode::Force).await
 }
 
-async fn app_stop_with_mode(
+pub(crate) async fn app_stop_with_mode(
     state: &Arc<AppLifecycleManager>,
     app_id: String,
     mode: AppStopMode,
@@ -1140,7 +1166,10 @@ fn app_icon_data_url_inner(_path: &Path) -> Result<String, String> {
     Err("当前系统不支持读取应用图标".to_string())
 }
 
-fn app_status_inner(state: &Arc<AppLifecycleManager>, id: &str) -> Result<AppStatusResult, String> {
+pub(crate) fn app_status_inner(
+    state: &Arc<AppLifecycleManager>,
+    id: &str,
+) -> Result<AppStatusResult, String> {
     let entry = state
         .processes
         .lock()
