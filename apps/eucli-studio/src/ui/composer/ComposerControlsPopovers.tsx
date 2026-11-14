@@ -6,8 +6,15 @@ import { REASONING_EFFORT_OPTIONS } from '../../domain/reasoning'
 import { numericTimeValue } from '../utils/time'
 import { ModelSourcePicker } from '../components/ModelSourcePicker'
 import { RoleModelCandidateList } from '../components/RoleModelCandidateList'
+import { CustomScrollArea } from '../components/CustomScrollArea'
 import { refreshScopes } from '../../domain/uiRefreshScope'
 import { useScopedUiVersions } from '../hooks/useScopedUiVersion'
+
+// 角色候选模型区块的限高：候选少时按内容自然铺开，超过这个高度就在区块内滚动，
+// 弹层高度不再随候选数量一路撑高。滚动走客户端自制滑块，不出现原生滚动条。
+// 内容右侧留出一条滑块车道（7px 滑块 + 3px 贴边），滑块不压候选行的边缘。
+const TEMP_MODEL_CANDIDATE_LIST_MAX_HEIGHT = 240
+const TEMP_MODEL_CANDIDATE_LIST_CONTENT_SX = { pr: 1.25 }
 
 // 独立刷新：用 memo 隔离，只有自身输入变化时才重绘，不被无关整页刷新牵连。
 export const ComposerControlsPopovers = React.memo(function ComposerControlsPopovers(props: {
@@ -184,15 +191,22 @@ export const ComposerControlsPopovers = React.memo(function ComposerControlsPopo
               角色候选模型（{roleModelCandidates.length}）
             </Typography>
 
-            <RoleModelCandidateList
-              candidates={roleModelCandidates}
-              providers={providers}
-              modelGroups={modelGroups}
-              highlightedKey={tempModelHighlightKey}
-              highlightLabel="临时模型"
-              emptyHint="这个角色还没有候选模型，可到角色设置里添加。"
-              onSelect={onPickRoleModelCandidate}
-            />
+            <CustomScrollArea
+              axis="y"
+              hostSx={{ maxHeight: TEMP_MODEL_CANDIDATE_LIST_MAX_HEIGHT }}
+              scrollSx={{ maxHeight: TEMP_MODEL_CANDIDATE_LIST_MAX_HEIGHT }}
+              contentSx={TEMP_MODEL_CANDIDATE_LIST_CONTENT_SX}
+            >
+              <RoleModelCandidateList
+                candidates={roleModelCandidates}
+                providers={providers}
+                modelGroups={modelGroups}
+                highlightedKey={tempModelHighlightKey}
+                highlightLabel="临时模型"
+                emptyHint="这个角色还没有候选模型，可到角色设置里添加。"
+                onSelect={onPickRoleModelCandidate}
+              />
+            </CustomScrollArea>
 
             <Stack direction="row" spacing={1} justifyContent="space-between" alignItems="center" sx={{ pt: 0.5 }}>
               <Button variant="text" onClick={clearTempModelOverride} disabled={!hasChatOverride || loading}>
