@@ -449,6 +449,10 @@ function MessageRowImpl(props: MessageRowProps) {
           bgcolor: isUser ? '#fff' : 'transparent',
           backgroundImage: 'none',
           boxShadow: 'none',
+          // 行容器只为让操作栏可达而接收焦点，本身不是可点击控件：
+          // 不画浏览器 UA 焦点轮廓（PageUp / PageDown 等键盘滚动会把它画出来）。
+          // 键盘位置反馈由操作栏出现承担；行内按钮仍保留各自的焦点轮廓。
+          outline: 'none',
         }}
       >
         {!isUser && (showSpeakerIdentity || !!roleModelText) ? (
