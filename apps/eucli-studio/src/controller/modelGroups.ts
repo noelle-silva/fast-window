@@ -99,7 +99,7 @@ export function createModelGroupsController(deps: {
     updateItems((items) => items.map((group) => {
       if (String(group?.id || '') !== id) return group
       const models = Array.isArray(group.models) ? group.models : []
-      return { ...group, models: [...models, { id: makeClientId('mgm'), name: uniqueName('对外模型', models), strategy: 'sequential', members: [] }] }
+      return { ...group, models: [...models, { id: makeClientId('mgm'), strategy: 'sequential', members: [] }] }
     }))
   }
 
@@ -117,7 +117,7 @@ export function createModelGroupsController(deps: {
     const gid = String(groupId || '').trim()
     const modelIndex = normalizeModelIndex(modelIndexRaw)
     const key = String(field || '').trim()
-    if (!gid || modelIndex < 0 || !['id', 'name', 'strategy', 'supportsReasoning', 'defaultReasoningEffort'].includes(key)) return
+    if (!gid || modelIndex < 0 || !['id', 'strategy', 'supportsReasoning', 'defaultReasoningEffort'].includes(key)) return
     updateItems((items) => items.map((group) => {
       if (String(group?.id || '') !== gid) return group
       return {
@@ -267,7 +267,6 @@ function normalizeGroupModels(value: any): any[] {
     .filter((model) => model && typeof model === 'object')
     .map((model) => ({
       id: String(model.id || '').trim(),
-      name: String(model.name || '').trim(),
       strategy: String(model.strategy || '') === 'weighted_random' ? 'weighted_random' : 'sequential',
       ...normalizeReasoningFields({
         supportsReasoning: !!model.supportsReasoning,
@@ -277,7 +276,7 @@ function normalizeGroupModels(value: any): any[] {
       createdAt: typeof model.createdAt === 'string' ? model.createdAt : undefined,
       updatedAt: typeof model.updatedAt === 'string' ? model.updatedAt : undefined,
     }))
-    .filter((model) => model.id || model.name)
+    .filter((model) => model.id)
 }
 
 function normalizeGroupMembers(value: any): any[] {

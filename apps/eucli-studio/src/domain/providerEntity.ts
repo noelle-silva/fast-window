@@ -31,10 +31,8 @@ export function validateProviderRegisteredModels(value: any) {
     const line = index + 1
     if (!model || typeof model !== 'object') return `登记模型第 ${line} 行数据无效，请删除该行后重试`
     const id = String(model.id || '').trim()
-    const name = String(model.name || '').trim()
     const sourceModelId = String(model.sourceModelId || '').trim()
     if (!id) return `登记模型第 ${line} 行的「自定义模型 ID」未填写`
-    if (!name) return `登记模型第 ${line} 行的「显示名称」未填写`
     if (!sourceModelId) return `登记模型第 ${line} 行的「映射原始模型」未选择`
     const duplicateLine = usedIds.get(id)
     if (duplicateLine !== undefined) return `登记模型第 ${line} 行的「自定义模型 ID」与第 ${duplicateLine} 行重复`
@@ -49,7 +47,6 @@ export function normalizeProviderRegisteredModels(value: any) {
     .filter((model: any) => model && typeof model === 'object')
     .map((model: any) => normalizeReasoningFields({
       id: String(model.id || '').trim(),
-      name: String(model.name || model.id || '').trim(),
       sourceModelId: String(model.sourceModelId || '').trim(),
       supportsReasoning: !!model.supportsReasoning,
       defaultReasoningEffort: normalizeReasoningEffort(model.defaultReasoningEffort),

@@ -337,7 +337,6 @@ export function normalizeData(raw: any) {
       .filter((model: any) => model && typeof model === 'object')
       .map((model: any) => normalizeReasoningFields({
         id: String(model.id || '').trim(),
-        name: String(model.name || model.id || '').trim(),
         sourceModelId: String(model.sourceModelId || model.modelId || '').trim(),
         supportsReasoning: !!model.supportsReasoning,
         defaultReasoningEffort: normalizeReasoningEffort(model.defaultReasoningEffort),

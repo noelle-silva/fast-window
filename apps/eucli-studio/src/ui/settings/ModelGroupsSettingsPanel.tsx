@@ -190,7 +190,7 @@ function ModelGroupModelCard(props: { controller: any; groupId: string; model: a
       <Stack spacing={1.5}>
         <Stack direction="row" spacing={1} alignItems="center">
           <Box sx={{ flex: 1, minWidth: 0 }}>
-            <Typography sx={{ fontWeight: 900 }} noWrap>{String(model?.name || modelId || '对外模型')}</Typography>
+            <Typography sx={{ fontWeight: 900 }} noWrap>{String(modelId || '对外模型')}</Typography>
             <Typography variant="caption" color="text.secondary" noWrap>{strategyLabel} · {members.length} 个成员</Typography>
           </Box>
           <MoreActionsMenu
@@ -202,7 +202,7 @@ function ModelGroupModelCard(props: { controller: any; groupId: string; model: a
               danger: true,
               confirm: {
                 title: '确认删除对外模型？',
-                description: `将删除「${String(model?.name || modelId || '对外模型')}」，保存后生效。`,
+                description: `将删除「${String(modelId || '对外模型')}」，保存后生效。`,
               },
               onSelect: () => controller.actions.deleteModelGroupModel?.(groupId, modelIndex),
             }]}
@@ -216,13 +216,6 @@ function ModelGroupModelCard(props: { controller: any; groupId: string; model: a
             value={modelId}
             onChange={(e) => controller.actions.setModelGroupModelField?.(groupId, modelIndex, 'id', e.target.value)}
             helperText="角色与聊天引用这个入口，稳定后再用。"
-          />
-          <TextField
-            size="small"
-            label="显示名称"
-            value={String(model?.name || '')}
-            onChange={(e) => controller.actions.setModelGroupModelField?.(groupId, modelIndex, 'name', e.target.value)}
-            helperText="只用于列表识别，不承担引用身份。"
           />
           <FormControl size="small" fullWidth>
             <InputLabel>策略</InputLabel>
@@ -278,7 +271,7 @@ function ModelGroupMemberRow(props: { controller: any; groupId: string; modelInd
         <InputLabel>登记模型</InputLabel>
         <Select label="登记模型" value={String(member?.modelId || '')} onChange={(e) => controller.actions.setModelGroupMemberField?.(groupId, modelIndex, memberIndex, 'modelId', e.target.value)} disabled={!providerId}>
           <MenuItem value=""><em>请选择模型</em></MenuItem>
-          {registeredModels.map((model: any) => <MenuItem key={String(model?.id || '')} value={String(model?.id || '')}>{String(model?.name || model?.id || '')}</MenuItem>)}
+          {registeredModels.map((model: any) => <MenuItem key={String(model?.id || '')} value={String(model?.id || '')}>{String(model?.id || '')}</MenuItem>)}
         </Select>
       </FormControl>
       <TextField size="small" label="权重" type="number" value={String(member?.weight || 1)} onChange={(e) => controller.actions.setModelGroupMemberField?.(groupId, modelIndex, memberIndex, 'weight', e.target.value)} inputProps={{ min: 1, step: 1 }} sx={{ width: { xs: '100%', md: 120 } }} />

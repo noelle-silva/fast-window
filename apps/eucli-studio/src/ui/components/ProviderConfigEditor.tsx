@@ -46,7 +46,7 @@ export function ProviderConfigEditor(props: ProviderConfigEditorProps) {
     const used = new Set(registeredModels.map((item: any) => String(item?.sourceModelId || '')).filter(Boolean))
     const sourceModelId = rawModels.find((id: string) => !used.has(id)) || rawModels[0] || ''
     const id = sourceModelId ? uniqueModelId(sourceModelId, registeredModels) : makeClientId('model')
-    setDraft('providerRegisteredModels', [...registeredModels, { id, name: id, sourceModelId }])
+    setDraft('providerRegisteredModels', [...registeredModels, { id, sourceModelId }])
   }
 
   const selectRegisteredModelSource = (index: number, sourceModelId: string) => {
@@ -55,7 +55,7 @@ export function ProviderConfigEditor(props: ProviderConfigEditorProps) {
       return
     }
     const siblings = registeredModels.filter((_item: any, idx: number) => idx !== index)
-    updateRegisteredModel(index, { sourceModelId, id: uniqueModelId(sourceModelId, siblings), name: sourceModelId })
+    updateRegisteredModel(index, { sourceModelId, id: uniqueModelId(sourceModelId, siblings) })
   }
 
   const removeRegisteredModel = (index: number) => {
@@ -145,7 +145,6 @@ export function ProviderConfigEditor(props: ProviderConfigEditorProps) {
                 <Stack spacing={0.75}>
                   <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} alignItems={{ xs: 'stretch', md: 'center' }}>
                     <TextField size="small" label="自定义模型 ID" value={String(item?.id || '')} onChange={(e) => updateRegisteredModel(index, { id: e.target.value })} sx={{ flex: 1 }} />
-                    <TextField size="small" label="显示名称" value={String(item?.name || '')} onChange={(e) => updateRegisteredModel(index, { name: e.target.value })} sx={{ flex: 1 }} />
                     <FormControl size="small" sx={{ flex: 1, minWidth: 180 }} error={missingSourceModel}>
                       <InputLabel>映射原始模型</InputLabel>
                       <Select label="映射原始模型" value={String(item?.sourceModelId || '')} onChange={(e) => selectRegisteredModelSource(index, e.target.value)}>
@@ -170,7 +169,7 @@ export function ProviderConfigEditor(props: ProviderConfigEditorProps) {
                         danger: true,
                         confirm: {
                           title: '确认删除登记模型？',
-                          description: `将移除「${String(item?.name || item?.id || '该模型')}」，保存供应商后生效。`,
+                          description: `将移除「${String(item?.id || '该模型')}」，保存供应商后生效。`,
                         },
                         onSelect: () => removeRegisteredModel(index),
                       }]}

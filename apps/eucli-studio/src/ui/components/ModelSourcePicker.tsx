@@ -73,7 +73,7 @@ export function ModelSourcePicker(props: {
             {!hasPickInList && value.modelId ? <MenuItem value={value.modelId}>{value.modelId}</MenuItem> : null}
             {modelItems.map((item: any) => (
               <MenuItem key={item.id} value={item.id}>
-                {item.hint ? `${item.label} / ${item.hint}` : item.label}
+                {item.label}
               </MenuItem>
             ))}
           </Select>

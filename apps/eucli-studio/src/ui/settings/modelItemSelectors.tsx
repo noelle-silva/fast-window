@@ -5,9 +5,8 @@ export function registeredModelItems(provider: any) {
   return models
     .map((model: any) => {
       const id = String(model?.id || '').trim()
-      const label = String(model?.name || model?.id || '').trim() || id
-      const hint = String(model?.sourceModelId || '').trim()
-      return { id, label, hint }
+      // 模型选项只呈现对外 ID：上游模型名不进入选择列表。
+      return { id, label: id }
     })
     .filter((model: any) => model.id)
 }
@@ -58,8 +57,8 @@ export function modelGroupModelItems(group: any) {
   return models
     .map((model: any) => {
       const id = String(model?.id || '').trim()
-      const label = String(model?.name || model?.id || '').trim() || id
-      return { id, label, hint: '' }
+      // 模型组对外模型同样只认 ID：选项不引入额外名称。
+      return { id, label: id }
     })
     .filter((model: any) => model.id)
 }

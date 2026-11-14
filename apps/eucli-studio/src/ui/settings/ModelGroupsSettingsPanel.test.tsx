@@ -81,7 +81,7 @@ describe('模型组设置面板列表刷新', () => {
 
     const text = host!.textContent || ''
     expect(text).toContain('对外模型 ID')
-    expect(text).toContain('显示名称')
+    expect(text).not.toContain('显示名称')
     expect(text).toContain('策略')
     expect(text).toContain('可推理')
     expect(text).toContain('成员模型')
@@ -98,5 +98,15 @@ describe('模型组设置面板列表刷新', () => {
 
     renderPanel([{ id: 'mg1', name: '模型组甲', models: [panelModel({ supportsReasoning: true })] }], controller)
     expect(hasDefaultReasoningSelect()).toBe(true)
+  })
+
+  it('对外模型不再读取旧数据里的名称', () => {
+    const controller = createController()
+
+    renderPanel([{ id: 'mg1', name: '模型组甲', models: [panelModel({ name: '旧名字' })] }], controller)
+
+    const inputValues = Array.from(host!.querySelectorAll('input')).map((el) => (el as HTMLInputElement).value)
+    expect(inputValues).toContain('deepseek')
+    expect(host!.textContent).not.toContain('旧名字')
   })
 })

@@ -252,7 +252,7 @@ function ServiceModelPicker(props: {
             </MenuItem>
             {selection.modelItems.map((item: any) => (
               <MenuItem key={item.id} value={item.id}>
-                {item.hint ? `${item.label} / ${item.hint}` : item.label}
+                {item.label}
               </MenuItem>
             ))}
           </Select>

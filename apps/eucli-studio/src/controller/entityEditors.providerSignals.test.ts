@@ -253,8 +253,8 @@ describe('供应商实体通知', () => {
     harness.state.draft.providerProtocol = 'openai'
     harness.state.draft.providerApiKeys = [{ id: 'key-b', name: 'Key B', key: 'sk-b', enabled: true, weight: 1 }]
     harness.state.draft.providerRegisteredModels = [
-      { id: 'model-ok', name: '正常模型', sourceModelId: 'raw-ok' },
-      { id: 'model-broken', name: '缺映射模型', sourceModelId: '  ' },
+      { id: 'model-ok', sourceModelId: 'raw-ok' },
+      { id: 'model-broken', sourceModelId: '  ' },
     ]
 
     await harness.editors.saveProviderInlineEditor()
@@ -271,7 +271,7 @@ describe('供应商实体通知', () => {
     harness.editors.createProvider()
     harness.state.draft.providerProtocol = 'openai'
     harness.state.draft.providerApiKeys = [{ id: 'key-new', name: 'Key New', key: 'sk-new', enabled: true, weight: 1 }]
-    harness.state.draft.providerRegisteredModels = [{ id: 'model-new', name: '新模型', sourceModelId: '' }]
+    harness.state.draft.providerRegisteredModels = [{ id: 'model-new', sourceModelId: '' }]
 
     await harness.editors.saveProviderInlineEditor()
 
@@ -288,7 +288,7 @@ describe('供应商实体通知', () => {
     harness.state.draft.providerBaseUrl = 'https://b.example/v1'
     harness.state.draft.providerProtocol = 'openai'
     harness.state.draft.providerApiKeys = [{ id: 'key-b', name: 'Key B', key: 'sk-b', enabled: true, weight: 1 }]
-    harness.state.draft.providerRegisteredModels = [{ id: '  ', name: '无 ID 模型', sourceModelId: 'raw-1' }]
+    harness.state.draft.providerRegisteredModels = [{ id: '  ', sourceModelId: 'raw-1' }]
 
     await harness.editors.saveProviderInlineEditor()
 
@@ -304,8 +304,8 @@ describe('供应商实体通知', () => {
     harness.state.draft.providerProtocol = 'openai'
     harness.state.draft.providerApiKeys = [{ id: 'key-b', name: 'Key B', key: 'sk-b', enabled: true, weight: 1 }]
     harness.state.draft.providerRegisteredModels = [
-      { id: 'model-dup', name: '模型 A', sourceModelId: 'raw-a' },
-      { id: ' model-dup ', name: '模型 B', sourceModelId: 'raw-b' },
+      { id: 'model-dup', sourceModelId: 'raw-a' },
+      { id: ' model-dup ', sourceModelId: 'raw-b' },
     ]
 
     await harness.editors.saveProviderInlineEditor()
@@ -322,8 +322,8 @@ describe('供应商实体通知', () => {
     harness.state.draft.providerProtocol = 'openai'
     harness.state.draft.providerApiKeys = [{ id: 'key-b', name: ' Key B ', key: ' sk-b ', enabled: true, weight: '1' }]
     harness.state.draft.providerRegisteredModels = [
-      { id: ' model-1 ', name: ' 模型一 ', sourceModelId: ' raw-1 ', supportsReasoning: true, defaultReasoningEffort: 'high' },
-      { id: 'model-2', name: '模型二', sourceModelId: 'raw-2', supportsReasoning: false },
+      { id: ' model-1 ', sourceModelId: ' raw-1 ', supportsReasoning: true, defaultReasoningEffort: 'high' },
+      { id: 'model-2', sourceModelId: 'raw-2', supportsReasoning: false },
     ]
 
     await harness.editors.saveProviderInlineEditor()
@@ -331,8 +331,8 @@ describe('供应商实体通知', () => {
     expect(harness.saveProviderEntity).toHaveBeenCalledTimes(1)
     const provider = harness.state.data.settings.providers.find((item: any) => item.id === 'provider-b')
     expect(provider.registeredModels).toEqual([
-      { id: 'model-1', name: '模型一', sourceModelId: 'raw-1', supportsReasoning: true, defaultReasoningEffort: 'high' },
-      { id: 'model-2', name: '模型二', sourceModelId: 'raw-2' },
+      { id: 'model-1', sourceModelId: 'raw-1', supportsReasoning: true, defaultReasoningEffort: 'high' },
+      { id: 'model-2', sourceModelId: 'raw-2' },
     ])
     expect(harness.showToast).toHaveBeenCalledWith('供应商已保存', { kind: 'success' })
   })
