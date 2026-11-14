@@ -1,8 +1,12 @@
 import { now } from '../core/utils'
 import { moveListItemById, type ListMovePosition } from '../domain/listOrdering'
+import { normalizeModelGroupStrategyOptions } from '../domain/modelGroupStrategies'
 import { normalizeReasoningEffort, normalizeReasoningFields } from '../domain/reasoning'
 
 type ModelGroupsDraftMutator = (items: any[]) => any[]
+
+// 模型组清单与策略清单共用同一个页面、同一次刷新，缓存窗口保持一致。
+const MODEL_GROUPS_CACHE_MS = 60_000
 
 export function createModelGroupsController(deps: {
   getState: () => any
@@ -29,25 +33,56 @@ export function createModelGroupsController(deps: {
     deps.emit()
   }
 
+  // 页面级刷新：模型组清单与策略清单同属一次刷新，并发拉取、一次通知。
+  // loading 只在这一层开关，两个取数函数不各自广播，通知点因此没有增加。
   async function refreshModelGroups(force = false) {
-    const { box } = currentBox()
-    if (!force && Array.isArray(box.items) && box.items.length && now() - Number(box.fetchedAt || 0) < 60_000) return box.items
-    patchBox({ loading: true, error: '' })
+    patchBox({ loading: true, error: '', strategiesError: '' })
     deps.emit()
+    try {
+      const [items] = await Promise.all([loadModelGroupItems(force), loadModelGroupStrategies(force)])
+      return items
+    } finally {
+      patchBox({ loading: false })
+      deps.emit()
+    }
+  }
+
+  async function loadModelGroupItems(force: boolean) {
+    const { box } = currentBox()
+    if (!force && Array.isArray(box.items) && box.items.length && now() - Number(box.fetchedAt || 0) < MODEL_GROUPS_CACHE_MS) return box.items
     try {
       const response = await deps.netRequest({ method: 'GET', path: '/api/model-groups' })
       const status = Number(response?.status || 0)
       if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
       const items = normalizeModelGroups(response?.body)
-      patchBox({ loading: false, error: '', items, fetchedAt: now() })
+      patchBox({ error: '', items, fetchedAt: now() })
       return items
     } catch (e: any) {
       const error = String(e?.message || e || '加载模型组失败')
-      patchBox({ loading: false, error })
+      patchBox({ error })
       deps.showToast?.(error, { kind: 'error' })
       return []
-    } finally {
-      deps.emit()
+    }
+  }
+
+  // 策略清单是业务端的事实来源：这里只负责取回并原样落地，客户端不持有策略枚举。
+  // 失败时保留上一次拿到的清单，由渲染层兜底成「只显示已保存的值」。
+  async function loadModelGroupStrategies(force: boolean) {
+    const { box } = currentBox()
+    const cached = Array.isArray(box.strategies) ? box.strategies : []
+    if (!force && cached.length && now() - Number(box.strategiesFetchedAt || 0) < MODEL_GROUPS_CACHE_MS) return cached
+    try {
+      const response = await deps.netRequest({ method: 'GET', path: '/api/model-groups/strategies' })
+      const status = Number(response?.status || 0)
+      if (status < 200 || status >= 300) throw new Error(`HTTP ${status}`)
+      const strategies = normalizeModelGroupStrategyOptions(response?.body)
+      patchBox({ strategiesError: '', strategies, strategiesFetchedAt: now() })
+      return strategies
+    } catch (e: any) {
+      // 策略清单缺席不是致命错误：模型组清单照常可用，这里只把原因记下来。
+      const error = String(e?.message || e || '加载模型组策略清单失败')
+      patchBox({ strategiesError: error })
+      return []
     }
   }
 
@@ -96,10 +131,13 @@ export function createModelGroupsController(deps: {
   function createModelGroupModel(groupId: any) {
     const id = String(groupId || '').trim()
     if (!id) return
+    // 新模型的初始策略取业务端清单的第一项；清单还没拿到就留空，
+    // 保存后由业务端按自己的默认值补齐 —— 客户端不预设任何策略值。
+    const strategy = String(currentBox().box.strategies?.[0]?.value || '')
     updateItems((items) => items.map((group) => {
       if (String(group?.id || '') !== id) return group
       const models = Array.isArray(group.models) ? group.models : []
-      return { ...group, models: [...models, { id: makeClientId('mgm'), strategy: 'sequential', members: [] }] }
+      return { ...group, models: [...models, { id: makeClientId('mgm'), strategy, members: [] }] }
     }))
   }
 
@@ -130,8 +168,12 @@ export function createModelGroupsController(deps: {
           if (key === 'defaultReasoningEffort') {
             return normalizeReasoningFields({ ...model, supportsReasoning: true, defaultReasoningEffort: normalizeReasoningEffort(value) })
           }
-          const nextValue = key === 'strategy' && String(value || '') === 'weighted_random' ? 'weighted_random' : key === 'strategy' ? 'sequential' : String(value ?? '')
-          return { ...model, [key]: nextValue }
+          if (key === 'strategy') {
+            // 策略值只有一个来源，就是业务端清单给出的那些：空值不写、非空原样存。
+            const next = String(value ?? '').trim()
+            return next ? { ...model, strategy: next } : model
+          }
+          return { ...model, [key]: String(value ?? '') }
         }),
       }
     }))
@@ -243,6 +285,10 @@ export function defaultModelGroupsState() {
     saving: false,
     saveError: '',
     items: [] as any[],
+    // 策略清单由业务端提供，客户端只缓存与展示。
+    strategies: [] as any[],
+    strategiesError: '',
+    strategiesFetchedAt: 0,
     fetchedAt: 0,
   }
 }
@@ -267,7 +313,8 @@ function normalizeGroupModels(value: any): any[] {
     .filter((model) => model && typeof model === 'object')
     .map((model) => ({
       id: String(model.id || '').trim(),
-      strategy: String(model.strategy || '') === 'weighted_random' ? 'weighted_random' : 'sequential',
+      // 策略值原样保留：客户端不认识的新策略必须能存回来，绝不在这里改写。
+      strategy: String(model.strategy ?? '').trim(),
       ...normalizeReasoningFields({
         supportsReasoning: !!model.supportsReasoning,
         defaultReasoningEffort: normalizeReasoningEffort(model.defaultReasoningEffort),

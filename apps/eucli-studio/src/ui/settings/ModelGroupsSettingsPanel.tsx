@@ -1,9 +1,10 @@
 import * as React from 'react'
-import { Box, Button, FormControl, FormControlLabel, InputLabel, MenuItem, Select, Stack, Switch, TextField, Typography } from '@mui/material'
+import { Box, Button, FormControl, FormControlLabel, FormHelperText, InputLabel, MenuItem, Select, Stack, Switch, TextField, Typography } from '@mui/material'
 import AddIcon from '@mui/icons-material/Add'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import SaveIcon from '@mui/icons-material/Save'
+import { resolveModelGroupStrategySelection, type ModelGroupStrategyOption } from '../../domain/modelGroupStrategies'
 import { REASONING_EFFORT_OPTIONS } from '../../domain/reasoning'
 import { CustomScrollArea } from '../components/CustomScrollArea'
 import { MoreActionsMenu } from '../components/MoreActionsMenu'
@@ -23,6 +24,9 @@ export function ModelGroupsSettingsPanel(props: ModelGroupsSettingsPanelProps) {
   const { controller, loading, modelGroups, providers } = props
   const box = modelGroups && typeof modelGroups === 'object' ? modelGroups : {}
   const items = Array.isArray(box.items) ? box.items : []
+  // 策略清单只有业务端这一个来源：拿到什么就渲染什么，拿不到就只显示已保存的值。
+  const strategies: ModelGroupStrategyOption[] = Array.isArray(box.strategies) ? box.strategies : []
+  const strategiesNotice = modelGroupStrategiesNotice(box)
   const busy = loading || !!box.loading || !!box.saving
   const [selectedGroupId, setSelectedGroupId] = React.useState('')
 
@@ -58,6 +62,7 @@ export function ModelGroupsSettingsPanel(props: ModelGroupsSettingsPanelProps) {
         </Stack>
         {box.error ? <Typography variant="body2" color="error">{String(box.error || '')}</Typography> : null}
         {box.saveError ? <Typography variant="body2" color="error">{String(box.saveError || '')}</Typography> : null}
+        {strategiesNotice ? <Typography variant="body2" color="warning.main">{strategiesNotice}</Typography> : null}
 
         <Stack direction="row" spacing={1.5} sx={{ flex: 1, minHeight: 0 }}>
           <SettingsSection tone="muted" sx={{ p: 1, width: { xs: 200, sm: 260, lg: 300 }, flexShrink: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -109,7 +114,7 @@ export function ModelGroupsSettingsPanel(props: ModelGroupsSettingsPanelProps) {
           <Box sx={{ flex: 1, minWidth: 0, minHeight: 0 }}>
             <CustomScrollArea hostSx={{ height: '100%', minHeight: 0 }} scrollSx={{ height: '100%' }}>
               {selectedGroup ? (
-                <ModelGroupEditor controller={controller} group={selectedGroup} providers={providers} busy={busy} />
+                <ModelGroupEditor controller={controller} group={selectedGroup} providers={providers} strategies={strategies} busy={busy} />
               ) : (
                 <SettingsSection sx={{ p: 2 }}>
                   <Typography variant="body2" color="text.secondary">选择一个模型组查看和编辑。</Typography>
@@ -133,8 +138,17 @@ function BlockHeading(props: { title: React.ReactNode; meta?: string }) {
   )
 }
 
-function ModelGroupEditor(props: { controller: any; group: any; providers: any[]; busy: boolean }) {
-  const { controller, group, providers, busy } = props
+// 策略清单拿不到时不留白：把原因和后果一起说清楚，不假装选项还在。
+function modelGroupStrategiesNotice(box: any) {
+  if (box.loading) return ''
+  if (box.strategiesError) return `策略清单加载失败：${String(box.strategiesError)}。下拉只能显示已保存的策略值。`
+  if (Array.isArray(box.strategies) && box.strategies.length) return ''
+  // 还没取过清单就先别下结论：提示只在第一次刷新给出结果之后出现。
+  return Number(box.strategiesFetchedAt || 0) > 0 ? '业务端没有返回可用策略，下拉只能显示已保存的策略值。' : ''
+}
+
+function ModelGroupEditor(props: { controller: any; group: any; providers: any[]; strategies: ModelGroupStrategyOption[]; busy: boolean }) {
+  const { controller, group, providers, strategies, busy } = props
   const groupId = String(group?.id || '')
   const models = Array.isArray(group?.models) ? group.models : []
   return (
@@ -170,7 +184,7 @@ function ModelGroupEditor(props: { controller: any; group: any; providers: any[]
         </Stack>
 
         {models.length ? models.map((model: any, modelIndex: number) => (
-          <ModelGroupModelCard key={`${groupId}:model:${modelIndex}`} controller={controller} groupId={groupId} model={model} modelIndex={modelIndex} providers={providers} busy={busy} />
+          <ModelGroupModelCard key={`${groupId}:model:${modelIndex}`} controller={controller} groupId={groupId} model={model} modelIndex={modelIndex} providers={providers} strategies={strategies} busy={busy} />
         )) : (
           <Typography variant="body2" color="text.secondary">这个模型组还没有对外模型。</Typography>
         )}
@@ -179,19 +193,21 @@ function ModelGroupEditor(props: { controller: any; group: any; providers: any[]
   )
 }
 
-function ModelGroupModelCard(props: { controller: any; groupId: string; model: any; modelIndex: number; providers: any[]; busy: boolean }) {
-  const { controller, groupId, model, modelIndex, providers, busy } = props
+function ModelGroupModelCard(props: { controller: any; groupId: string; model: any; modelIndex: number; providers: any[]; strategies: ModelGroupStrategyOption[]; busy: boolean }) {
+  const { controller, groupId, model, modelIndex, providers, strategies, busy } = props
   const modelId = String(model?.id || '')
   const members = Array.isArray(model?.members) ? model.members : []
   const supportsReasoning = !!model?.supportsReasoning
-  const strategyLabel = String(model?.strategy || '') === 'weighted_random' ? '权重随机' : '顺序轮询'
+  // 策略的展示名与可选项全部来自业务端清单；模型上存的值原样参与解析，不做改写。
+  const strategy = resolveModelGroupStrategySelection(strategies, model?.strategy)
+  const summary = [strategy.label, `${members.length} 个成员`].filter(Boolean).join(' · ')
   return (
     <SettingsSection tone="muted" sx={{ p: 1.5 }}>
       <Stack spacing={1.5}>
         <Stack direction="row" spacing={1} alignItems="center">
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Typography sx={{ fontWeight: 900 }} noWrap>{String(modelId || '对外模型')}</Typography>
-            <Typography variant="caption" color="text.secondary" noWrap>{strategyLabel} · {members.length} 个成员</Typography>
+            <Typography variant="caption" color="text.secondary" noWrap>{summary}</Typography>
           </Box>
           <MoreActionsMenu
             disabled={busy}
@@ -217,12 +233,17 @@ function ModelGroupModelCard(props: { controller: any; groupId: string; model: a
             onChange={(e) => controller.actions.setModelGroupModelField?.(groupId, modelIndex, 'id', e.target.value)}
             helperText="角色与聊天引用这个入口，稳定后再用。"
           />
-          <FormControl size="small" fullWidth>
+          {/* 清单为空就没有可选项：与其伪造选项，不如明确禁用，让上方提示解释原因。 */}
+          <FormControl size="small" fullWidth disabled={!strategy.options.length}>
             <InputLabel>策略</InputLabel>
-            <Select label="策略" value={String(model?.strategy || '') === 'weighted_random' ? 'weighted_random' : 'sequential'} onChange={(e) => controller.actions.setModelGroupModelField?.(groupId, modelIndex, 'strategy', e.target.value)}>
-              <MenuItem value="sequential">顺序轮询</MenuItem>
-              <MenuItem value="weighted_random">权重随机</MenuItem>
+            <Select
+              label="策略"
+              value={strategy.value}
+              onChange={(e) => controller.actions.setModelGroupModelField?.(groupId, modelIndex, 'strategy', e.target.value)}
+            >
+              {strategy.options.map((option) => <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>)}
             </Select>
+            {strategy.description ? <FormHelperText>{strategy.description}</FormHelperText> : null}
           </FormControl>
           <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'wrap', rowGap: 0.5 }}>
             <FormControlLabel sx={{ m: 0 }} control={<Switch checked={supportsReasoning} onChange={(e) => controller.actions.setModelGroupModelField?.(groupId, modelIndex, 'supportsReasoning', e.target.checked)} />} label="可推理" />
