@@ -69,4 +69,34 @@ describe('模型组设置面板列表刷新', () => {
     expect(host!.textContent).toContain('模型组甲')
     expect(host!.textContent).toContain('模型组乙')
   })
+
+  function panelModel(overrides: any = {}) {
+    return { id: 'deepseek', name: 'deepseek', strategy: 'sequential', supportsReasoning: false, members: [], ...overrides }
+  }
+
+  it('对外模型卡片保留全部设置项，并按「身份 / 运行 / 成员」分组呈现', () => {
+    const controller = createController()
+
+    renderPanel([{ id: 'mg1', name: '模型组甲', models: [panelModel()] }], controller)
+
+    const text = host!.textContent || ''
+    expect(text).toContain('对外模型 ID')
+    expect(text).toContain('显示名称')
+    expect(text).toContain('策略')
+    expect(text).toContain('可推理')
+    expect(text).toContain('成员模型')
+    expect(text).toContain('添加成员')
+  })
+
+  it('默认思考字段只在开启可推理后出现', () => {
+    const controller = createController()
+    // 提示文案里也含「默认思考」四个字，判断字段存在性要看标签节点。
+    const hasDefaultReasoningSelect = () => Array.from(host!.querySelectorAll('label')).some((el) => el.textContent === '默认思考')
+
+    renderPanel([{ id: 'mg1', name: '模型组甲', models: [panelModel()] }], controller)
+    expect(hasDefaultReasoningSelect()).toBe(false)
+
+    renderPanel([{ id: 'mg1', name: '模型组甲', models: [panelModel({ supportsReasoning: true })] }], controller)
+    expect(hasDefaultReasoningSelect()).toBe(true)
+  })
 })

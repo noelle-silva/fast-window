@@ -123,16 +123,31 @@ export function ModelGroupsSettingsPanel(props: ModelGroupsSettingsPanelProps) {
   )
 }
 
+// 区块标题：把「这个区块是什么 + 有多少条」压成一行，右侧留给该区块自己的动作按钮。
+function BlockHeading(props: { title: React.ReactNode; meta?: string }) {
+  return (
+    <Typography variant="caption" color="text.secondary" noWrap sx={{ flex: 1, minWidth: 0, fontWeight: 800, letterSpacing: '.02em' }}>
+      {props.title}
+      {props.meta ? ` · ${props.meta}` : ''}
+    </Typography>
+  )
+}
+
 function ModelGroupEditor(props: { controller: any; group: any; providers: any[]; busy: boolean }) {
   const { controller, group, providers, busy } = props
   const groupId = String(group?.id || '')
   const models = Array.isArray(group?.models) ? group.models : []
   return (
     <SettingsSection>
-      <Stack spacing={1.25}>
-        <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} alignItems={{ xs: 'stretch', md: 'center' }}>
-          <TextField size="small" label="模型组名称" value={String(group?.name || '')} onChange={(e) => controller.actions.setModelGroupField?.(groupId, 'name', e.target.value)} sx={{ flex: 1 }} />
-          <Button size="small" startIcon={<AddIcon />} onClick={() => controller.actions.createModelGroupModel?.(groupId)} disabled={busy}>添加对外模型</Button>
+      <Stack spacing={1.5}>
+        <Stack direction="row" spacing={1} alignItems="center">
+          <TextField
+            size="small"
+            label="模型组名称"
+            value={String(group?.name || '')}
+            onChange={(e) => controller.actions.setModelGroupField?.(groupId, 'name', e.target.value)}
+            sx={{ flex: 1 }}
+          />
           <MoreActionsMenu
             disabled={busy}
             items={[{
@@ -149,6 +164,11 @@ function ModelGroupEditor(props: { controller: any; group: any; providers: any[]
           />
         </Stack>
 
+        <Stack direction="row" spacing={1} alignItems="center">
+          <BlockHeading title="对外模型" meta={`${models.length} 个`} />
+          <Button size="small" startIcon={<AddIcon />} onClick={() => controller.actions.createModelGroupModel?.(groupId)} disabled={busy}>添加对外模型</Button>
+        </Stack>
+
         {models.length ? models.map((model: any, modelIndex: number) => (
           <ModelGroupModelCard key={`${groupId}:model:${modelIndex}`} controller={controller} groupId={groupId} model={model} modelIndex={modelIndex} providers={providers} busy={busy} />
         )) : (
@@ -163,43 +183,16 @@ function ModelGroupModelCard(props: { controller: any; groupId: string; model: a
   const { controller, groupId, model, modelIndex, providers, busy } = props
   const modelId = String(model?.id || '')
   const members = Array.isArray(model?.members) ? model.members : []
+  const supportsReasoning = !!model?.supportsReasoning
+  const strategyLabel = String(model?.strategy || '') === 'weighted_random' ? '权重随机' : '顺序轮询'
   return (
-    <SettingsSection tone="muted" sx={{ p: 1.25 }}>
-      <Stack spacing={1}>
-        <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} alignItems={{ xs: 'stretch', md: 'center' }}>
-          <TextField
-            size="small"
-            label="对外模型 ID"
-            value={modelId}
-            onChange={(e) => controller.actions.setModelGroupModelField?.(groupId, modelIndex, 'id', e.target.value)}
-            helperText="用于角色或聊天引用这个对外入口，建议稳定后再被使用。"
-            sx={{ flex: 1 }}
-          />
-          <TextField
-            size="small"
-            label="显示名称"
-            value={String(model?.name || '')}
-            onChange={(e) => controller.actions.setModelGroupModelField?.(groupId, modelIndex, 'name', e.target.value)}
-            helperText="只给人看，方便在列表中识别，不承担引用身份。"
-            sx={{ flex: 1 }}
-          />
-          <FormControl size="small" sx={{ minWidth: 160 }}>
-            <InputLabel>策略</InputLabel>
-            <Select label="策略" value={String(model?.strategy || '') === 'weighted_random' ? 'weighted_random' : 'sequential'} onChange={(e) => controller.actions.setModelGroupModelField?.(groupId, modelIndex, 'strategy', e.target.value)}>
-              <MenuItem value="sequential">顺序轮询</MenuItem>
-              <MenuItem value="weighted_random">权重随机</MenuItem>
-            </Select>
-          </FormControl>
-          <FormControlLabel control={<Switch checked={!!model?.supportsReasoning} onChange={(e) => controller.actions.setModelGroupModelField?.(groupId, modelIndex, 'supportsReasoning', e.target.checked)} />} label="可推理" />
-          {model?.supportsReasoning ? (
-            <FormControl size="small" sx={{ minWidth: 140 }}>
-              <InputLabel>默认思考</InputLabel>
-              <Select label="默认思考" value={String(model?.defaultReasoningEffort || 'medium')} onChange={(e) => controller.actions.setModelGroupModelField?.(groupId, modelIndex, 'defaultReasoningEffort', e.target.value)}>
-                {REASONING_EFFORT_OPTIONS.map((option) => <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>)}
-              </Select>
-            </FormControl>
-          ) : null}
-          <Button size="small" startIcon={<AddIcon />} onClick={() => controller.actions.createModelGroupMember?.(groupId, modelIndex)} disabled={busy}>添加成员</Button>
+    <SettingsSection tone="muted" sx={{ p: 1.5 }}>
+      <Stack spacing={1.5}>
+        <Stack direction="row" spacing={1} alignItems="center">
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Typography sx={{ fontWeight: 900 }} noWrap>{String(model?.name || modelId || '对外模型')}</Typography>
+            <Typography variant="caption" color="text.secondary" noWrap>{strategyLabel} · {members.length} 个成员</Typography>
+          </Box>
           <MoreActionsMenu
             disabled={busy}
             items={[{
@@ -216,11 +209,52 @@ function ModelGroupModelCard(props: { controller: any; groupId: string; model: a
           />
         </Stack>
 
+        <Stack spacing={2} sx={{ '& .MuiFormHelperText-root': { fontSize: 11, opacity: 0.85 } }}>
+          <TextField
+            size="small"
+            label="对外模型 ID"
+            value={modelId}
+            onChange={(e) => controller.actions.setModelGroupModelField?.(groupId, modelIndex, 'id', e.target.value)}
+            helperText="角色与聊天引用这个入口，稳定后再用。"
+          />
+          <TextField
+            size="small"
+            label="显示名称"
+            value={String(model?.name || '')}
+            onChange={(e) => controller.actions.setModelGroupModelField?.(groupId, modelIndex, 'name', e.target.value)}
+            helperText="只用于列表识别，不承担引用身份。"
+          />
+          <FormControl size="small" fullWidth>
+            <InputLabel>策略</InputLabel>
+            <Select label="策略" value={String(model?.strategy || '') === 'weighted_random' ? 'weighted_random' : 'sequential'} onChange={(e) => controller.actions.setModelGroupModelField?.(groupId, modelIndex, 'strategy', e.target.value)}>
+              <MenuItem value="sequential">顺序轮询</MenuItem>
+              <MenuItem value="weighted_random">权重随机</MenuItem>
+            </Select>
+          </FormControl>
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'wrap', rowGap: 0.5 }}>
+            <FormControlLabel sx={{ m: 0 }} control={<Switch checked={supportsReasoning} onChange={(e) => controller.actions.setModelGroupModelField?.(groupId, modelIndex, 'supportsReasoning', e.target.checked)} />} label="可推理" />
+            {supportsReasoning ? null : (
+              <Typography variant="caption" color="text.secondary">开启后可指定默认思考强度。</Typography>
+            )}
+          </Stack>
+          {supportsReasoning ? (
+            <FormControl size="small" fullWidth>
+              <InputLabel>默认思考</InputLabel>
+              <Select label="默认思考" value={String(model?.defaultReasoningEffort || 'medium')} onChange={(e) => controller.actions.setModelGroupModelField?.(groupId, modelIndex, 'defaultReasoningEffort', e.target.value)}>
+                {REASONING_EFFORT_OPTIONS.map((option) => <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>)}
+              </Select>
+            </FormControl>
+          ) : null}
+        </Stack>
+
+        <Stack direction="row" spacing={1} alignItems="center">
+          <BlockHeading title="成员模型" meta={`${members.length} 个`} />
+          <Button size="small" startIcon={<AddIcon />} onClick={() => controller.actions.createModelGroupMember?.(groupId, modelIndex)} disabled={busy}>添加成员</Button>
+        </Stack>
+
         {members.length ? members.map((member: any, index: number) => (
           <ModelGroupMemberRow key={index} controller={controller} groupId={groupId} modelIndex={modelIndex} member={member} memberIndex={index} providers={providers} busy={busy} />
-        )) : (
-          <Typography variant="caption" color="text.secondary">暂无成员模型。</Typography>
-        )}
+        )) : null}
       </Stack>
     </SettingsSection>
   )
