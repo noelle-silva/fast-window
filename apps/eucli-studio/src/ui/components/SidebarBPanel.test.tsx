@@ -295,6 +295,34 @@ describe('侧边栏 B 的工作桌面', () => {
     expect(host!.textContent).toContain('甲会话')
   })
 
+  it('临时条目的图标与正式条目同一套：角色草稿显示角色头像', () => {
+    addDeskDraft({ pendingChatId: 'draft-1', targetKind: 'role', targetId: 'role-b', title: '待发送会话' })
+    renderPanel()
+
+    const draftRow = host!.querySelector('[data-desk-draft="1"]') as HTMLElement
+    expect(draftRow.querySelector('img')!.getAttribute('src')).toBe('role-avatar-src')
+  })
+
+  it('工作区草稿带上来源字样，图标随悬停换成角色', () => {
+    addDeskDraft({
+      pendingChatId: 'draft-2',
+      targetKind: 'workspace',
+      targetId: 'ws-1',
+      roleId: 'role-b',
+      title: '待发送工作区会话',
+    })
+    renderPanel()
+
+    const draftRow = host!.querySelector('[data-desk-draft="1"]') as HTMLElement
+    expect(draftRow.textContent).toContain('工作区一/乙角色')
+    expect(draftRow.querySelector('img')!.getAttribute('src')).toBe(workspaceIcon.dataUrl)
+
+    act(() => {
+      draftRow.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
+    })
+    expect(draftRow.querySelector('img')!.getAttribute('src')).toBe('role-avatar-src')
+  })
+
   it('临时条目不参与拖拽排序', () => {
     addDeskDraft({ pendingChatId: 'draft-1', targetKind: 'role', targetId: 'role-a', title: '待发送会话' })
     renderPanel()
