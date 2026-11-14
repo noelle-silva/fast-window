@@ -32,7 +32,10 @@ mod clipboard_snapshot;
 mod clipboard_watch;
 mod config_store;
 mod core;
+mod dev_console;
+mod dev_profile;
 mod dev_terminal;
+mod host_actions;
 mod host_dev_actions;
 mod host_dialog;
 mod host_lifecycle;
@@ -41,6 +44,7 @@ mod host_updater;
 mod http_api;
 mod install_fs;
 pub(crate) mod json_file;
+mod local_http;
 mod migrations;
 mod os_actions;
 mod plugin_assets;
@@ -2565,6 +2569,9 @@ fn main() {
         app_lifecycle::manager::app_status,
         app_lifecycle::manager::app_status_many,
         app_lifecycle::manager::app_icon_data_url,
+        host_actions::host_action_run_command,
+        dev_console::dev_console_open,
+        dev_console::dev_console_server_status,
         host_dev_actions::host_dev_run_terminal_command,
         app_registry::app_registry_load,
         app_registry::app_registry_save,

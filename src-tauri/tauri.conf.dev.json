@@ -16,7 +16,8 @@
         "transparent": true,
         "alwaysOnTop": true,
         "visible": false,
-        "skipTaskbar": true
+        "skipTaskbar": true,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --remote-debugging-port=10065"
       }
     ]
   }

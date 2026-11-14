@@ -144,8 +144,16 @@ pub(crate) fn builder_tail(builder: tauri::Builder<tauri::Wry>) -> tauri::Builde
             app.manage(BrowserWindowState::default());
 
             let lifecycle = app.state::<Arc<AppLifecycleManager>>().inner().clone();
-            crate::capability_server::start_capability_server(app.handle().clone(), lifecycle)
+            crate::capability_server::start_capability_server(app.handle().clone(), lifecycle.clone())
                 .map_err(|error| std::io::Error::new(std::io::ErrorKind::Other, error))?;
+
+            // dev 控制台：本地脚本入口。正式宿主 is_dev_profile 恒为 false，不会监听该端口。
+            if crate::dev_profile::is_dev_profile() {
+                crate::dev_console::server::start(app.handle().clone(), lifecycle);
+                if let Err(error) = crate::dev_console::prewarm_window(app.handle()) {
+                    eprintln!("[dev-console] prewarm failed: {error}");
+                }
+            }
 
             // 宿主数据迁移必须早于任何宿主配置读取，避免启动阶段用旧位置/默认值初始化状态。
             let _ = migrations::migrate_host_files_into_app_dir(app.handle());
