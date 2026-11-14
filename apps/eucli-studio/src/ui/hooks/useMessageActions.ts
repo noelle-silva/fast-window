@@ -22,7 +22,8 @@ export function useMessageActions(deps: {
   // 切到同级分支后：落到被选中的那条分支并继续跟随（不用“会话最新”去猜）。
   onBranchSiblingSelected: (mid: string) => void
   setBranchNav: React.Dispatch<React.SetStateAction<{ mid: string; at: number }>>
-  stickToBottomRef: React.MutableRefObject<boolean>
+  // 用户主动换视野（切分支）：把跟底交还给用户。
+  pauseFollow: () => void
   autoScrollBlockUntilRef: React.MutableRefObject<number>
   treeSuppressClickRef: React.MutableRefObject<boolean>
 }) {
@@ -42,7 +43,7 @@ export function useMessageActions(deps: {
     chatAllById,
     onBranchSiblingSelected,
     setBranchNav,
-    stickToBottomRef,
+    pauseFollow,
     autoScrollBlockUntilRef,
     treeSuppressClickRef,
   } = deps
@@ -174,7 +175,7 @@ export function useMessageActions(deps: {
   const switchBranchSibling = useEvent((mid: string, direction: -1 | 1, nextMid: string) => {
     const id = String(mid || '').trim()
     if (!id) return
-    stickToBottomRef.current = false
+    pauseFollow()
     autoScrollBlockUntilRef.current = Date.now() + 1200
     const followMid = String(nextMid || '').trim()
     if (followMid) {

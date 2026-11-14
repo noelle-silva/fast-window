@@ -31,7 +31,8 @@ export function useChatTree(deps: {
   setViewIntentFromNodeClick: (mid: string) => void
   branchDraft: any
   branchDraftKey: string
-  stickToBottomRef: React.MutableRefObject<boolean>
+  // 用户主动换视野（点选节点）：把跟底交还给用户。
+  pauseFollow: () => void
   autoScrollBlockUntilRef: React.MutableRefObject<number>
   setBranchNav: React.Dispatch<React.SetStateAction<{ mid: string; at: number }>>
   treeSuppressClickRef: React.MutableRefObject<boolean>
@@ -54,7 +55,7 @@ export function useChatTree(deps: {
     setViewIntentFromNodeClick,
     branchDraft,
     branchDraftKey,
-    stickToBottomRef,
+    pauseFollow,
     autoScrollBlockUntilRef,
     setBranchNav,
     treeSuppressClickRef,
@@ -592,7 +593,7 @@ export function useChatTree(deps: {
     setViewIntentFromNodeClick(mid)
     setTreeFollowTick((t) => t + 1)
 
-    stickToBottomRef.current = false
+    pauseFollow()
     autoScrollBlockUntilRef.current = Date.now() + 1200
     setBranchNav({ mid, at: Date.now() })
   })

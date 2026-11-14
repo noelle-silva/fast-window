@@ -57,7 +57,7 @@ function renderTreeHook(chat: any) {
       setViewIntentFromNodeClick,
       branchDraft: null,
       branchDraftKey: '',
-      stickToBottomRef: { current: true },
+      pauseFollow: () => {},
       autoScrollBlockUntilRef: { current: 0 },
       setBranchNav,
       treeSuppressClickRef: { current: false },

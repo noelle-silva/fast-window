@@ -55,6 +55,7 @@ export const CustomScrollArea = React.forwardRef<HTMLDivElement, CustomScrollAre
       <Box
         ref={scrollRef}
         onClick={onClick}
+        data-eucli-scroll-viewport="1"
         sx={[
           {
             minWidth: 0,

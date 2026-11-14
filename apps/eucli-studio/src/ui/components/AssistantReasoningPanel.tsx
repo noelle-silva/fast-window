@@ -6,11 +6,11 @@ import CleaningServicesIcon from '@mui/icons-material/CleaningServices'
 import type { ReasoningDisplayMode } from '../../domain/reasoningDisplay'
 import { AssistantMessageHost } from '../../render/assistantMessageHost'
 import { CustomScrollArea } from './CustomScrollArea'
+import { useStickFollow } from '../scroll/useStickFollow'
 import { ReasoningCleanDialog } from './ReasoningCleanDialog'
 import { formatDurationMs } from '../utils/time'
 
 const REASONING_MAX_HEIGHT_PX = 320
-const FOLLOW_BOTTOM_THRESHOLD_PX = 24
 
 type AssistantReasoningPanelProps = {
   controller: any
@@ -34,45 +34,22 @@ export function AssistantReasoningPanel(props: AssistantReasoningPanelProps) {
   const [cleaning, setCleaning] = React.useState(false)
   const wasActiveRef = React.useRef(isActive)
   const scrollRef = React.useRef<HTMLDivElement | null>(null)
-  // 视窗是否吸附在底部；只认真实滚动事件，输出中内容自然增高不算用户上滚。
-  const stickToBottomRef = React.useRef(true)
   const wasExpandedRef = React.useRef(false)
+  // 视窗是否还跟着最新一行：判定与吸附都走通用跟底内核，只认真实滚动事件。
+  const { followingRef, setFollowing, schedulePin, cancelPin } = useStickFollow({ scrollRef, enabled: expanded })
 
-  React.useEffect(() => {
-    const el = scrollRef.current
-    if (!el || !expanded) return
-    const onScroll = () => {
-      stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= FOLLOW_BOTTOM_THRESHOLD_PX
-    }
-    onScroll()
-    el.addEventListener('scroll', onScroll, { passive: true })
-    return () => el.removeEventListener('scroll', onScroll)
-  }, [expanded])
-
-  // 吸附滚动推迟到下一帧：本帧提交后再写 scrollTop，避免在提交阶段强读 scrollHeight；
+  // 吸附推迟到下一帧：本帧提交后再写 scrollTop，避免在提交阶段强读 scrollHeight；
   // 多次增量只会保留最后一次调度，一帧最多一次滚动写入。
-  const stickFrameRef = React.useRef(0)
-
   React.useLayoutEffect(() => {
     const justExpanded = expanded && !wasExpandedRef.current
     wasExpandedRef.current = expanded
-    const el = scrollRef.current
-    if (!el || !expanded) return
+    if (!expanded) return
     // 展开瞬间：思考仍在输出就回到最新一行并恢复跟随；已结束则从开头阅读。
-    if (justExpanded) stickToBottomRef.current = isActive
-    if (!stickToBottomRef.current) return
-    if (stickFrameRef.current) cancelAnimationFrame(stickFrameRef.current)
-    stickFrameRef.current = requestAnimationFrame(() => {
-      stickFrameRef.current = 0
-      el.scrollTop = el.scrollHeight
-    })
-    return () => {
-      if (stickFrameRef.current) {
-        cancelAnimationFrame(stickFrameRef.current)
-        stickFrameRef.current = 0
-      }
-    }
-  }, [text, expanded, isActive])
+    if (justExpanded) setFollowing(isActive)
+    if (!followingRef.current) return
+    schedulePin()
+    return cancelPin
+  }, [text, expanded, isActive, followingRef, setFollowing, schedulePin, cancelPin])
 
   React.useEffect(() => {
     const wasActive = wasActiveRef.current

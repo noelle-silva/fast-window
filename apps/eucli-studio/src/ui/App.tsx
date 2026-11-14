@@ -101,6 +101,7 @@ import { useSidebarNavigation } from './hooks/useSidebarNavigation'
 import { useSessionScrollNav } from './hooks/useSessionScrollNav'
 import { resolveSessionScrollTop, type SessionScrollIntent } from './scroll/sessionScrollNav'
 import { createSessionScrollAnimator } from './scroll/sessionScrollAnimation'
+import { useStickFollow, type StickFollow } from './scroll/useStickFollow'
 import { createStudioMuiTheme } from './colorThemeStyles'
 import { ChatTreeModal } from './chatTree/ChatTreeModal'
 import { ShellFrame } from './surfaces/ShellFrame'
@@ -425,31 +426,13 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
 
   const chatRootRef = React.useRef<HTMLDivElement | null>(null)
   const revealMessageRef = React.useRef<((mid: string) => void) | null>(null)
-  const stickToBottomRef = React.useRef(true)
   const autoScrollBlockUntilRef = React.useRef(0)
-  // 跟底滚动的唯一调度入口：一帧最多写一次，目标元素在帧回调里重新读取。
-  const stickFrameRef = React.useRef(0)
-  const scheduleStickToBottom = React.useCallback(() => {
-    if (stickFrameRef.current) return
-    stickFrameRef.current = requestAnimationFrame(() => {
-      stickFrameRef.current = 0
-      // 排队期间用户自己翻过页：这一帧不再把视图拽回底部。
-      if (!stickToBottomRef.current) return
-      const el = chatRootRef.current
-      if (!el) return
-      try {
-        el.scrollTop = el.scrollHeight
-      } catch (_) {}
-    })
-  }, [chatRootRef])
-  React.useEffect(
-    () => () => {
-      if (!stickFrameRef.current) return
-      cancelAnimationFrame(stickFrameRef.current)
-      stickFrameRef.current = 0
-    },
-    [],
-  )
+  // 跟底内核等滚动节点与可见性就绪后才建立（见下方 pageVisible 之后）。
+  // 这里先留一个稳定的「交还控制权」入口，供切节点 / 切分支这类用户动作取用。
+  const stickFollowRef = React.useRef<StickFollow | null>(null)
+  const pauseFollow = React.useCallback(() => {
+    stickFollowRef.current?.setFollowing(false)
+  }, [])
   const composerRef = React.useRef<HTMLDivElement | null>(null)
   const [composerHeight, setComposerHeight] = React.useState(0)
   const chatPaneRef = React.useRef<HTMLDivElement | null>(null)
@@ -730,7 +713,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     setViewIntentFromNodeClick: (mid: string) => setSelection(placeSelection(renderChat, mid)),
     branchDraft,
     branchDraftKey,
-    stickToBottomRef,
+    pauseFollow,
     autoScrollBlockUntilRef,
     setBranchNav,
     treeSuppressClickRef,
@@ -971,6 +954,21 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   // 滚动跟随只对「当前可见页」生效：隐藏的保活页不参与任何 scrollTop 写入。
   const pageVisible = sessionVisibleKey === sessionPageKey && !!sessionPageKey
 
+  // 消息区跟底：判定与吸附走通用内核，写入时机仍由消息变化 / 流式范围刷新驱动。
+  // 会话页换人时用 viewportKey 重挂监听，避免还盯着上一页的滚动节点。
+  const stickFollow = useStickFollow({
+    scrollRef: chatRootRef,
+    enabled: page === 'chat' && pageVisible,
+    viewportKey: sessionPageKey,
+  })
+  stickFollowRef.current = stickFollow
+  const {
+    followingRef: stickToBottomRef,
+    setFollowing,
+    schedulePin: scheduleStickToBottom,
+    cancelPin,
+  } = stickFollow
+
   // 键盘翻页：Ctrl + PageUp / PageDown / Home / End 一律滚当前可见的会话，
   // 光标停在草稿框里也照样生效——这组键是「看消息」的，不该被输入框截走。
   // 推进器自己管动画：目标可以边跑边改，连按不会重新起步。
@@ -983,13 +981,10 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
 
   const onSessionScrollIntent = useEvent((intent: SessionScrollIntent, el: HTMLElement) => {
     // 已经排队的跟底帧先撤掉：这一下是用户自己在换视野，别在动画途中被拽回底部。
-    if (stickFrameRef.current) {
-      cancelAnimationFrame(stickFrameRef.current)
-      stickFrameRef.current = 0
-    }
+    cancelPin()
     // 滚动到哪由动画决定；动画途中的实际位置由滚动事件一路校正。
     // PageDown 单独看：原本就贴着底部时它不产生位移，保持跟随才对。
-    stickToBottomRef.current = intent === 'bottom' || (intent === 'page-down' && isNearBottom(el))
+    setFollowing(intent === 'bottom' || (intent === 'page-down' && isNearBottom(el)))
     // 连按时从「上一次的目标」继续累加，而不是从滚动中的当前位置起算：
     // 目标一路往前推，推进器就不用重启动画，手感才连贯。
     const base = sessionScrollAnimator.target() ?? el.scrollTop
@@ -1010,24 +1005,12 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
 
   React.useEffect(() => {
     if (page !== 'chat' || !pageVisible) return
-    const el = chatRootRef.current
-    if (!el) return
-    const onScroll = () => {
-      stickToBottomRef.current = isNearBottom(el)
-    }
-    onScroll()
-    el.addEventListener('scroll', onScroll, { passive: true } as any)
-    return () => el.removeEventListener('scroll', onScroll as any)
-  }, [page, pageVisible, sessionPageKey, activeRole?.id, activeChat?.id, activeBranchIdUi, branchDraftKey])
-
-  React.useEffect(() => {
-    if (page !== 'chat' || !pageVisible) return
     if (!chatRootRef.current) return
     if (Date.now() < autoScrollBlockUntilRef.current) return
     if (branchNav.mid) return
-    stickToBottomRef.current = true
+    setFollowing(true)
     scheduleStickToBottom()
-  }, [page, pageVisible, sessionPageKey, activeRole?.id, activeChat?.id, activeBranchIdUi, branchDraftKey, branchNav.mid, scheduleStickToBottom])
+  }, [page, pageVisible, sessionPageKey, activeRole?.id, activeChat?.id, activeBranchIdUi, branchDraftKey, branchNav.mid, setFollowing, scheduleStickToBottom])
 
   React.useEffect(() => {
     if (page !== 'chat' || !pageVisible) return
@@ -1060,7 +1043,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     const root = chatRootRef.current
     if (!root) return
 
-    stickToBottomRef.current = false
+    setFollowing(false)
 
     let tries = 0
     let canceled = false
@@ -1156,7 +1139,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     chatAllById,
     onBranchSiblingSelected: (mid: string) => setSelection(followFrom(mid)),
     setBranchNav,
-    stickToBottomRef,
+    pauseFollow,
     autoScrollBlockUntilRef,
     treeSuppressClickRef,
   })
