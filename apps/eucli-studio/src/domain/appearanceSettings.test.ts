@@ -27,6 +27,12 @@ import {
 } from './appearanceSettings'
 
 describe('外观表面默认值与范围', () => {
+  it('默认值取设计稿：聊天 59%/3px、顶栏 0%/3px、输入栏 86%/10px', () => {
+    expect([CHAT_BG_OPACITY_DEFAULT, CHAT_BG_BLUR_DEFAULT]).toEqual([59, 3])
+    expect([TOPBAR_OPACITY_DEFAULT, TOPBAR_BLUR_DEFAULT]).toEqual([0, 3])
+    expect([COMPOSER_OPACITY_DEFAULT, COMPOSER_BLUR_DEFAULT]).toEqual([86, 10])
+  })
+
   it('缺失值回落到既有默认值', () => {
     expect(normalizeChatBgOpacity(undefined)).toBe(CHAT_BG_OPACITY_DEFAULT)
     expect(normalizeChatBgBlur(undefined)).toBe(CHAT_BG_BLUR_DEFAULT)

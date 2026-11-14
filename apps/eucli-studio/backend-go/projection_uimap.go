@@ -156,7 +156,10 @@ func fromUIProvider(value any) map[string]any {
 }
 
 func mergeSettings(settings map[string]any, providers []map[string]any, mermaidFix map[string]any, chatTitleNaming map[string]any, stickerNaming map[string]any, contextCompression map[string]any) map[string]any {
-	out := map[string]any{"streamEnabled": true, "transparentChatBg": false, "chatBgOpacity": 0, "chatBgBlur": 0, "topbarOpacity": 100, "topbarBlur": 0, "composerOpacity": 86, "composerBlur": 10, "branchTree": map[string]any{"dir": "lr", "view": "float", "followSelected": true, "modalHotkey": ""}, "renderSafetyPolicy": "original", "userMessageCollapseEnabled": false, "userMessageCollapseLines": 8, "stickers": map[string]any{"enabled": false, "categories": []any{}, "map": map[string]any{}}, "providers": []any{}}
+	// 外观表面（聊天背景 / 顶栏 / 输入栏）的默认值必须与客户端
+	// apps/eucli-studio/src/domain/appearanceSettings.ts 的 *_DEFAULT 保持一致：
+	// 客户端本地偏好尚未落盘时，这里提供的形状就是用户看到的出厂外观。
+	out := map[string]any{"streamEnabled": true, "transparentChatBg": false, "chatBgOpacity": 59, "chatBgBlur": 3, "topbarOpacity": 0, "topbarBlur": 3, "composerOpacity": 86, "composerBlur": 10, "branchTree": map[string]any{"dir": "lr", "view": "float", "followSelected": true, "modalHotkey": ""}, "renderSafetyPolicy": "original", "userMessageCollapseEnabled": false, "userMessageCollapseLines": 8, "stickers": map[string]any{"enabled": false, "categories": []any{}, "map": map[string]any{}}, "providers": []any{}}
 	for k, v := range settings {
 		out[k] = v
 	}

@@ -1,23 +1,24 @@
 import { clampWithPrecision, toFiniteNumber } from './numberNormalize'
 
 // 外观表面（聊天背景 / 顶栏 / 输入区）的默认值与取值范围的单一事实源。
-// normalizer、动作层与设置面板统一从这里取值，禁止再写一份 0/24/40/100/86/10。
+// normalizer、动作层与设置面板统一从这里取值，禁止在别处再写一份具体数字。
+// 默认值取设计稿：聊天背景 59% / 3px，顶栏 0% / 3px，输入栏 86% / 10px。
 
 export const CHAT_BG_OPACITY_MIN = 0
 export const CHAT_BG_OPACITY_MAX = 100
-export const CHAT_BG_OPACITY_DEFAULT = 0
+export const CHAT_BG_OPACITY_DEFAULT = 59
 
 export const CHAT_BG_BLUR_MIN = 0
 export const CHAT_BG_BLUR_MAX = 24
-export const CHAT_BG_BLUR_DEFAULT = 0
+export const CHAT_BG_BLUR_DEFAULT = 3
 
 export const TOPBAR_OPACITY_MIN = 0
 export const TOPBAR_OPACITY_MAX = 100
-export const TOPBAR_OPACITY_DEFAULT = 100
+export const TOPBAR_OPACITY_DEFAULT = 0
 
 export const TOPBAR_BLUR_MIN = 0
 export const TOPBAR_BLUR_MAX = 24
-export const TOPBAR_BLUR_DEFAULT = 0
+export const TOPBAR_BLUR_DEFAULT = 3
 
 export const COMPOSER_OPACITY_MIN = 40
 export const COMPOSER_OPACITY_MAX = 100

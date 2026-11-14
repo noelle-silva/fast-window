@@ -34,28 +34,7 @@ import {
   normalizeWorkProcessInnerScrollWidth,
 } from '../../domain/workProcessDisplay'
 import { normalizeMessageOffscreenSkipEnabled } from '../../domain/messageOffscreen'
-import {
-  CHAT_BG_BLUR_MAX,
-  CHAT_BG_BLUR_MIN,
-  CHAT_BG_OPACITY_MAX,
-  CHAT_BG_OPACITY_MIN,
-  COMPOSER_BLUR_MAX,
-  COMPOSER_BLUR_MIN,
-  COMPOSER_OPACITY_MAX,
-  COMPOSER_OPACITY_MIN,
-  TOPBAR_BLUR_MAX,
-  TOPBAR_BLUR_MIN,
-  TOPBAR_OPACITY_MAX,
-  TOPBAR_OPACITY_MIN,
-  normalizeChatBgBlur,
-  normalizeChatBgOpacity,
-  normalizeComposerBlur,
-  normalizeComposerOpacity,
-  normalizeTopbarBlur,
-  normalizeTopbarOpacity,
-} from '../../domain/appearanceSettings'
 import { normalizeBranchTreeSettings } from '../../domain/branchTree'
-import { isTransparentChatBg } from '../../domain/wallpaper'
 import {
   SESSION_KEEP_ALIVE_MAX_LIMIT,
   SESSION_KEEP_ALIVE_MIN_LIMIT,
@@ -280,13 +259,6 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
     return () => window.removeEventListener('keydown', onKeyDown, true)
   }, [treeHotkeyRecording, controller])
 
-  const transparentChatBg = isTransparentChatBg(settings)
-  const chatBgOpacity = normalizeChatBgOpacity(settings?.chatBgOpacity)
-  const chatBgBlur = normalizeChatBgBlur(settings?.chatBgBlur)
-  const topbarOpacity = normalizeTopbarOpacity(settings?.topbarOpacity)
-  const topbarBlur = normalizeTopbarBlur(settings?.topbarBlur)
-  const composerOpacity = normalizeComposerOpacity(settings?.composerOpacity)
-  const composerBlur = normalizeComposerBlur(settings?.composerBlur)
   const composerWidthPercent = normalizeComposerWidthPercent(settings?.composerWidthPercent)
   const composerMinRows = normalizeComposerMinRows(settings?.composerMinRows)
   const composerRadius = normalizeComposerRadius(settings?.composerRadius)
@@ -615,151 +587,6 @@ export function AppearanceSettingsPanel(props: { controller: any; loading: boole
         </SettingsSection>
 
         <ComposerToolsLayoutSection controller={controller} loading={loading} layout={composerToolsLayout} />
-
-        <SettingsSection>
-          <Stack spacing={1.25}>
-            <Box>
-              <Typography sx={{ fontWeight: 900 }}>组件调节</Typography>
-              {!transparentChatBg ? (
-                <Typography variant="caption" color="text.secondary">
-                  启用壁纸后这些调节才可使用。
-                </Typography>
-              ) : null}
-            </Box>
-
-            <Box>
-              <Stack direction="row" spacing={1} alignItems="center">
-                <Typography variant="body2" sx={{ fontWeight: 900 }}>
-                  聊天背景透明度
-                </Typography>
-                <Box sx={{ flex: 1 }} />
-                <Typography variant="caption" color="text.secondary">
-                  {Math.round(chatBgOpacity)}%
-                </Typography>
-              </Stack>
-              <Slider
-                size="small"
-                value={chatBgOpacity}
-                min={CHAT_BG_OPACITY_MIN}
-                max={CHAT_BG_OPACITY_MAX}
-                step={1}
-                onChange={(_e, v) => controller.actions.setChatBgOpacity?.(v, false)}
-                onChangeCommitted={(_e, v) => controller.actions.setChatBgOpacity?.(v, true)}
-                disabled={loading || !transparentChatBg}
-              />
-            </Box>
-
-            <Box>
-              <Stack direction="row" spacing={1} alignItems="center">
-                <Typography variant="body2" sx={{ fontWeight: 900 }}>
-                  聊天背景磨砂度
-                </Typography>
-                <Box sx={{ flex: 1 }} />
-                <Typography variant="caption" color="text.secondary">
-                  {Math.round(chatBgBlur)}px
-                </Typography>
-              </Stack>
-              <Slider
-                size="small"
-                value={chatBgBlur}
-                min={CHAT_BG_BLUR_MIN}
-                max={CHAT_BG_BLUR_MAX}
-                step={1}
-                onChange={(_e, v) => controller.actions.setChatBgBlur?.(v, false)}
-                onChangeCommitted={(_e, v) => controller.actions.setChatBgBlur?.(v, true)}
-                disabled={loading || !transparentChatBg}
-              />
-            </Box>
-
-            <Box>
-              <Stack direction="row" spacing={1} alignItems="center">
-                <Typography variant="body2" sx={{ fontWeight: 900 }}>
-                  顶部栏透明度
-                </Typography>
-                <Box sx={{ flex: 1 }} />
-                <Typography variant="caption" color="text.secondary">
-                  {Math.round(topbarOpacity)}%
-                </Typography>
-              </Stack>
-              <Slider
-                size="small"
-                value={topbarOpacity}
-                min={TOPBAR_OPACITY_MIN}
-                max={TOPBAR_OPACITY_MAX}
-                step={1}
-                onChange={(_e, v) => controller.actions.setTopbarOpacity?.(v, false)}
-                onChangeCommitted={(_e, v) => controller.actions.setTopbarOpacity?.(v, true)}
-                disabled={loading || !transparentChatBg}
-              />
-            </Box>
-
-            <Box>
-              <Stack direction="row" spacing={1} alignItems="center">
-                <Typography variant="body2" sx={{ fontWeight: 900 }}>
-                  顶部栏磨砂度
-                </Typography>
-                <Box sx={{ flex: 1 }} />
-                <Typography variant="caption" color="text.secondary">
-                  {Math.round(topbarBlur)}px
-                </Typography>
-              </Stack>
-              <Slider
-                size="small"
-                value={topbarBlur}
-                min={TOPBAR_BLUR_MIN}
-                max={TOPBAR_BLUR_MAX}
-                step={1}
-                onChange={(_e, v) => controller.actions.setTopbarBlur?.(v, false)}
-                onChangeCommitted={(_e, v) => controller.actions.setTopbarBlur?.(v, true)}
-                disabled={loading || !transparentChatBg}
-              />
-            </Box>
-
-            <Box>
-              <Stack direction="row" spacing={1} alignItems="center">
-                <Typography variant="body2" sx={{ fontWeight: 900 }}>
-                  输入栏透明度
-                </Typography>
-                <Box sx={{ flex: 1 }} />
-                <Typography variant="caption" color="text.secondary">
-                  {Math.round(composerOpacity)}%
-                </Typography>
-              </Stack>
-              <Slider
-                size="small"
-                value={composerOpacity}
-                min={COMPOSER_OPACITY_MIN}
-                max={COMPOSER_OPACITY_MAX}
-                step={1}
-                onChange={(_e, v) => controller.actions.setComposerOpacity?.(v, false)}
-                onChangeCommitted={(_e, v) => controller.actions.setComposerOpacity?.(v, true)}
-                disabled={loading || !transparentChatBg}
-              />
-            </Box>
-
-            <Box>
-              <Stack direction="row" spacing={1} alignItems="center">
-                <Typography variant="body2" sx={{ fontWeight: 900 }}>
-                  输入栏磨砂度
-                </Typography>
-                <Box sx={{ flex: 1 }} />
-                <Typography variant="caption" color="text.secondary">
-                  {Math.round(composerBlur)}px
-                </Typography>
-              </Stack>
-              <Slider
-                size="small"
-                value={composerBlur}
-                min={COMPOSER_BLUR_MIN}
-                max={COMPOSER_BLUR_MAX}
-                step={1}
-                onChange={(_e, v) => controller.actions.setComposerBlur?.(v, false)}
-                onChangeCommitted={(_e, v) => controller.actions.setComposerBlur?.(v, true)}
-                disabled={loading || !transparentChatBg}
-              />
-            </Box>
-          </Stack>
-        </SettingsSection>
 
         <SettingsSection>
           <Stack spacing={1.25}>

@@ -10,6 +10,7 @@ import { useEvent } from '../hooks/useEvent'
 import { clearWallpaperImage, useWallpaperImage } from '../wallpaper/useWallpaperImage'
 import { MoreActionsMenu } from '../components/MoreActionsMenu'
 import { SettingsPill, SettingsSection } from './SettingsSurfaces'
+import { SurfaceTuningBlock } from './SurfaceTuningBlock'
 import { WallpaperViewEditorDialog } from './WallpaperViewEditorDialog'
 
 export function WallpaperSettingsSection(props: { controller: any; loading: boolean; settings: any }) {
@@ -116,6 +117,8 @@ export function WallpaperSettingsSection(props: { controller: any; loading: bool
         <Typography variant="caption" color="text.secondary">
           启用壁纸后聊天背景自动按透明模式渲染，下方「组件调节」直接作用在壁纸上。
         </Typography>
+
+        <SurfaceTuningBlock controller={controller} loading={loading} settings={settings} />
       </Stack>
 
       <WallpaperViewEditorDialog open={editorOpen} controller={controller} preset={activePreset} onClose={() => setEditorOpen(false)} />
