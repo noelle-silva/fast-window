@@ -2,8 +2,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::dev_terminal::{host_workspace_root, run_dev_terminal_command, DevTerminalCommandSpec};
 
-const HOST_DEV_PROFILE_ENV: &str = "FAST_WINDOW_HOST_PROFILE";
-const HOST_DEV_PROFILE_VALUE: &str = "dev";
 const HOST_PUBLISH_SCRIPT: &str = "scripts/publish-host-msi.mjs";
 
 #[derive(Deserialize)]
@@ -47,7 +45,7 @@ pub(crate) struct HostDevTerminalCommandResult {
 pub(crate) async fn host_dev_run_terminal_command(
     request: HostDevTerminalCommandRequest,
 ) -> Result<HostDevTerminalCommandResult, String> {
-    ensure_host_dev_profile()?;
+    crate::dev_profile::ensure_dev_profile()?;
     let workspace_root = host_workspace_root(&[HOST_PUBLISH_SCRIPT])?;
     let spec = request.to_spec()?;
     run_dev_terminal_command(&workspace_root, &spec).await?;
@@ -88,17 +86,6 @@ fn host_publish_spec(
         description,
         args,
     })
-}
-
-fn ensure_host_dev_profile() -> Result<(), String> {
-    if !cfg!(debug_assertions) {
-        return Err("当前宿主不是 debug 构建，拒绝执行宿主开发命令".to_string());
-    }
-
-    match std::env::var(HOST_DEV_PROFILE_ENV) {
-        Ok(value) if value == HOST_DEV_PROFILE_VALUE => Ok(()),
-        _ => Err("当前宿主不是 dev profile，拒绝执行宿主开发命令".to_string()),
-    }
 }
 
 fn normalize_host_release_version(version: &str) -> Result<String, String> {
