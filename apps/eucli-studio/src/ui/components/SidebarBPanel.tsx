@@ -15,6 +15,7 @@ import {
   getDeskDrafts,
   getDeskDraftsVersion,
   removeDeskDraft,
+  resolveDeskDraftEntries,
   subscribeDeskDrafts,
   type DeskDraft,
 } from '../../domain/deskDrafts'
@@ -164,6 +165,11 @@ export function SidebarBPanel(props: SidebarBPanelProps) {
     })()
   }, [controller, pendingDeskScopes, tab])
   const deskDrafts = useDeskDrafts()
+  // 草稿也让图标与来源信息跟上：解析走正式条目同一份函数，草稿不是另一套形状。
+  const deskDraftEntries = React.useMemo(
+    () => resolveDeskDraftEntries(data, deskDrafts),
+    [data, deskDrafts],
+  )
 
   // 分组标签与混排顺序都来自后端那一份清单：新建、改名、换色、折叠、拖拽都写回去。
   const [groupMenu, setGroupMenu] = React.useState<DeskGroupTagMenuState>(null)
@@ -224,7 +230,7 @@ export function SidebarBPanel(props: SidebarBPanelProps) {
           <DeskChatList
             rows={deskRows}
             desks={desks}
-            drafts={deskDrafts}
+            drafts={deskDraftEntries}
             activeChatId={activeChatId}
             runningChatIds={runningChatIds}
             noticeDotByKey={noticeDotByKey}

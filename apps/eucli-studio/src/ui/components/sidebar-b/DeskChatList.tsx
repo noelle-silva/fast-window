@@ -38,7 +38,7 @@ import {
   type DeskTargetKind,
   type SessionDesks,
 } from '../../../domain/desks'
-import type { DeskDraft } from '../../../domain/deskDrafts'
+import type { DeskDraft, DeskDraftEntry } from '../../../domain/deskDrafts'
 import { formatContextTokens } from '../../../domain/messageMetaLine'
 import { sessionSourceLabel } from '../../../domain/sessionSourceLabel'
 import type { DeskNoticeDotKind } from '../../deskNotice'
@@ -124,6 +124,19 @@ function DeskEntryIcon(props: { kind: DeskTargetKind; image: string; active: boo
   )
 }
 
+/** 行的图标：工作区来源在开关打开时悬停换成角色图标。正式条目与临时条目共用这一份判断。 */
+function deskRowIcon(
+  source: { targetKind: DeskTargetKind; avatarImage: string; roleAvatarImage: string },
+  hoverShowsRoleIcon: boolean,
+  hovered: boolean,
+): { iconKind: DeskTargetKind; iconImage: string } {
+  const swapToRole = hoverShowsRoleIcon && source.targetKind === 'workspace' && hovered
+  return {
+    iconKind: swapToRole ? 'role' : source.targetKind,
+    iconImage: swapToRole ? source.roleAvatarImage : source.avatarImage,
+  }
+}
+
 // 通知点本身可点：绿 / 红是未读，点了标记已读；黄是有人要你确认，点了直接进会话。
 // 点击不冒泡给整行，避免「清提醒」被当成「打开会话」。
 function DeskNoticeDot(props: { kind: DeskNoticeDotKind; onActivate: () => void }) {
@@ -155,6 +168,46 @@ function DeskNoticeDot(props: { kind: DeskNoticeDotKind; onActivate: () => void 
   )
 }
 
+/** 行的文字块：名称 / 来源 / 第三行附加信息。正式条目与临时条目共用这份排版。 */
+function DeskChatText(props: {
+  title: string
+  sourceLabel: string
+  active: boolean
+  /** 第三行：正式条目放上下文用量与 running，草稿没有这段事实就不传。 */
+  children?: React.ReactNode
+}) {
+  const { title, sourceLabel, active } = props
+  return (
+    <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '1px' }}>
+      <Typography
+        noWrap
+        sx={{
+          fontSize: 12,
+          lineHeight: '14px',
+          fontWeight: active ? 900 : 600,
+          color: active ? 'text.primary' : 'text.secondary',
+        }}
+      >
+        {title}
+      </Typography>
+      {sourceLabel ? (
+        <Typography
+          noWrap
+          sx={{
+            fontSize: 10,
+            lineHeight: '12px',
+            fontWeight: 600,
+            color: active ? 'text.secondary' : 'text.disabled',
+          }}
+        >
+          {sourceLabel}
+        </Typography>
+      ) : null}
+      {props.children}
+    </Box>
+  )
+}
+
 /** 会话行的内容。可拖行和浮层里的那一份共用它，保证两边长得一模一样。 */
 function DeskChatBody(props: {
   entry: DeskEntry
@@ -177,10 +230,7 @@ function DeskChatBody(props: {
   const sourceLabel = sessionSourceLabel(entry)
   const contextUsageText = formatContextTokens(entry.contextTokens)
 
-  // 悬停换图标只作用于工作区来源；角色没设头像时自然落回角色默认图标。
-  const swapToRole = hoverShowsRoleIcon && entry.targetKind === 'workspace' && hovered
-  const iconKind: DeskTargetKind = swapToRole ? 'role' : entry.targetKind
-  const iconImage = swapToRole ? entry.roleAvatarImage : entry.avatarImage
+  const { iconKind, iconImage } = deskRowIcon(entry, hoverShowsRoleIcon, hovered)
 
   return (
     <Box
@@ -190,31 +240,7 @@ function DeskChatBody(props: {
 
       {/* 三行叠放：名称 / 来源 / 上下文用量。来源常驻；第三行是已使用的上下文规模，
           跑起来时在它右边接上 running。 */}
-      <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: '1px' }}>
-        <Typography
-          noWrap
-          sx={{
-            fontSize: 12,
-            lineHeight: '14px',
-            fontWeight: active ? 900 : 600,
-            color: active ? 'text.primary' : 'text.secondary',
-          }}
-        >
-          {entry.title}
-        </Typography>
-        {sourceLabel ? (
-          <Typography
-            noWrap
-            sx={{
-              fontSize: 10,
-              lineHeight: '12px',
-              fontWeight: 600,
-              color: active ? 'text.secondary' : 'text.disabled',
-            }}
-          >
-            {sourceLabel}
-          </Typography>
-        ) : null}
+      <DeskChatText title={entry.title} sourceLabel={sourceLabel} active={active}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: '4px', minWidth: 0, overflow: 'hidden' }}>
           <Typography
             noWrap
@@ -248,7 +274,7 @@ function DeskChatBody(props: {
             </Box>
           ) : null}
         </Box>
-      </Box>
+      </DeskChatText>
 
       {/* 通知点：黄色是有人要你确认，点它直接进会话；绿 / 红是未读，点它清掉提醒。 */}
       {noticeDot ? (
@@ -578,15 +604,25 @@ function SortableGroupRow(props: GroupRowProps) {
 }
 
 // 临时条目（Ctrl 新建、还没发送的会话）：淡一档，不参与拖拽，也不进后端数据。
-function DeskDraftRow(props: { draft: DeskDraft; onRemove: (draft: DeskDraft) => void }) {
-  const { draft, onRemove } = props
+// 图标与来源跟正式条目同一套：草稿只是还没拿到会话，不代表它没有归属。
+function DeskDraftRow(props: {
+  draft: DeskDraftEntry
+  hoverShowsRoleIcon: boolean
+  onRemove: (draft: DeskDraft) => void
+}) {
+  const { draft, hoverShowsRoleIcon, onRemove } = props
+  const [hovered, setHovered] = React.useState(false)
+  const { iconKind, iconImage } = deskRowIcon(draft, hoverShowsRoleIcon, hovered)
+  const sourceLabel = sessionSourceLabel(draft)
   return (
-    <Tooltip title="尚未发送，发送后转为正式条目" placement="left">
+    <Tooltip title={sourceLabel ? `${sourceLabel} · 尚未发送` : '尚未发送，发送后转为正式条目'} placement="left">
       <Box
         role="button"
         tabIndex={0}
         aria-label={draft.title}
         data-desk-draft="1"
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
         sx={{
           position: 'relative',
           width: '100%',
@@ -604,10 +640,8 @@ function DeskDraftRow(props: { draft: DeskDraft; onRemove: (draft: DeskDraft) =>
           opacity: 0.55,
         }}
       >
-        <DeskEntryIcon kind={draft.targetKind as DeskTargetKind} image="" active={false} />
-        <Typography noWrap sx={{ flex: 1, minWidth: 0, fontSize: 12, lineHeight: '14px', fontWeight: 600, color: 'text.secondary' }}>
-          {draft.title}
-        </Typography>
+        <DeskEntryIcon kind={iconKind} image={iconImage} active={false} />
+        <DeskChatText title={draft.title} sourceLabel={sourceLabel} active={false} />
         <IconButton
           size="small"
           aria-label={`从工作桌面移除 ${draft.title}`}
@@ -626,7 +660,7 @@ export function DeskChatList(props: {
   rows: DeskRow[]
   /** 桌面数据本身，拖拽时用来判断某一层里都有谁。 */
   desks: SessionDesks | undefined
-  drafts: DeskDraft[]
+  drafts: DeskDraftEntry[]
   activeChatId: string
   runningChatIds: ReadonlySet<string>
   noticeDotByKey: Readonly<Record<string, DeskNoticeDotKind>>
@@ -830,7 +864,12 @@ export function DeskChatList(props: {
   return (
     <Box sx={LIST_SX}>
       {drafts.map((draft) => (
-        <DeskDraftRow key={draft.pendingChatId} draft={draft} onRemove={onRemoveDraft} />
+        <DeskDraftRow
+          key={draft.pendingChatId}
+          draft={draft}
+          hoverShowsRoleIcon={hoverShowsRoleIcon}
+          onRemove={onRemoveDraft}
+        />
       ))}
 
       {rows.length ? (
