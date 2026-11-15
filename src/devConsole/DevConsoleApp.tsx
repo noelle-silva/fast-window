@@ -5,7 +5,8 @@ import AppCatalogList from './AppCatalogList'
 import ExecutionList from './ExecutionList'
 import { useDevConsole } from './useDevConsole'
 
-const COMMAND_HINT = 'stop <应用> · kill <应用> · stop --all · kill --all'
+const COMMAND_HINT = 'stop · kill · start · restart · status · list'
+const TARGET_HINT = 'folder <应用> · info <应用> · --all 批量'
 
 export default function DevConsoleApp() {
   const { apps, statuses, serverStatus, executions, run } = useDevConsole()
@@ -75,6 +76,9 @@ export default function DevConsoleApp() {
 
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75 }}>
           {COMMAND_HINT}
+        </Typography>
+        <Typography variant="caption" color="text.disabled" sx={{ display: 'block' }}>
+          {TARGET_HINT}
         </Typography>
 
         {candidates.length > 0 ? (

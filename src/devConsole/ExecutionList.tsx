@@ -64,22 +64,37 @@ function ExecutionRow({ execution, onPickCandidate }: ExecutionRowProps) {
           {response.results.map(result => {
             const copy = describeResult(response.action, result)
             return (
-              <Stack
-                key={result.appId}
-                direction="row"
-                spacing={1}
-                sx={{ alignItems: 'baseline', flexWrap: 'wrap' }}
-              >
-                <Typography variant="caption" sx={{ fontWeight: 600 }}>
-                  {result.name}
-                </Typography>
-                <Typography variant="caption" sx={{ color: toneColor(copy.tone) }}>
-                  {copy.text}
-                </Typography>
-                <Typography variant="caption" sx={{ color: 'text.disabled' }}>
-                  {result.durationMs} ms
-                </Typography>
-              </Stack>
+              <Box key={result.appId}>
+                <Stack
+                  direction="row"
+                  spacing={1}
+                  sx={{ alignItems: 'baseline', flexWrap: 'wrap' }}
+                >
+                  <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                    {result.name}
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: toneColor(copy.tone) }}>
+                    {copy.text}
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: 'text.disabled' }}>
+                    {result.durationMs} ms
+                  </Typography>
+                </Stack>
+                {copy.detail ? (
+                  <Typography
+                    variant="caption"
+                    sx={{
+                      display: 'block',
+                      color: 'text.secondary',
+                      fontSize: 11,
+                      lineHeight: 1.5,
+                      wordBreak: 'break-all',
+                    }}
+                  >
+                    {copy.detail}
+                  </Typography>
+                ) : null}
+              </Box>
             )
           })}
           {response.results.length === 0 ? (

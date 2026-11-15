@@ -5,25 +5,40 @@ import type { RegisteredApp } from '../apps/types'
 /// 与 Rust 侧 `DEV_CONSOLE_WINDOW_LABEL` 对齐：窗口身份以 label 为准。
 export const DEV_CONSOLE_WINDOW_LABEL = 'dev-console'
 
-export type HostAppAction = 'stop' | 'forceStop'
+export type HostAppAction =
+  | 'stop'
+  | 'forceStop'
+  | 'start'
+  | 'restart'
+  | 'status'
+  | 'list'
+  | 'folder'
+  | 'info'
 
 export type AppStopMethod = 'alreadyStopped' | 'graceful' | 'killed' | 'terminated'
 
+export type AppLaunchOutcome = 'activated' | 'skippedColdStart'
+
+type ResultBase = {
+  appId: string
+  name: string
+  durationMs: number
+}
+
 export type HostActionResult =
-  | {
-      appId: string
-      name: string
-      durationMs: number
-      state: 'stopped'
-      method: AppStopMethod
-    }
-  | {
-      appId: string
-      name: string
-      durationMs: number
-      state: 'failed'
-      message: string
-    }
+  | (ResultBase & { state: 'stopped'; method: AppStopMethod })
+  | (ResultBase & { state: 'started'; launch: AppLaunchOutcome })
+  | (ResultBase & { state: 'restarted'; method: AppStopMethod })
+  | (ResultBase & {
+      state: 'status'
+      running: boolean
+      pid?: number
+      phase?: string
+      startedAt?: number
+    })
+  | (ResultBase & { state: 'folder'; path: string })
+  | (ResultBase & { state: 'info'; path: string; version?: string; appKind?: string })
+  | (ResultBase & { state: 'failed'; message: string })
 
 export type HostActionResponse = {
   ok: true
