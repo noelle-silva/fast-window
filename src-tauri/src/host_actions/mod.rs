@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::AppHandle;
 
+use crate::app_capabilities::{describe_app_capabilities, AppCapabilityLaunchPolicy};
 use crate::app_lifecycle::manager::{
     app_status_inner, app_stop_with_mode, AppRuntimePhase, AppStopMethod, AppStopMode,
 };
@@ -20,6 +21,17 @@ pub(crate) mod command;
 pub(crate) mod target;
 
 use target::{AppCandidate, AppCatalogEntry, TargetResolution};
+
+/// `env` 讲的是宿主自己而不是某个应用：
+/// 结果里需要一个固定身份，让窗口能把这类「宿主级事实」与按应用的结果区分开。
+const HOST_SCOPE_ID: &str = "host";
+const HOST_SCOPE_NAME: &str = "宿主环境";
+
+/// 变量名里出现这个片段即视为机密：能力服务 token 绝不能原样出现在窗口或脚本响应里。
+const SECRET_NAME_MARKER: &str = "TOKEN";
+/// 保留的前缀长度：足够认出「还是同一个 token」，又不足以拿去用。
+const SECRET_PREFIX_CHARS: usize = 12;
+const SECRET_MASK: &str = "…";
 
 /// 宿主可对外调度的应用动作。
 ///
@@ -38,6 +50,10 @@ pub(crate) enum HostAppAction {
     List,
     Folder,
     Info,
+    /// 读取某个应用当前声明的能力 API；只问运行中的应用，不替用户启动。
+    Capability,
+    /// 看宿主注入的能力服务环境变量；与任何应用目标无关。
+    Env,
 }
 
 impl HostAppAction {
@@ -47,12 +63,15 @@ impl HostAppAction {
             Self::Stop | Self::ForceStop | Self::Restart => running,
             Self::Start => !running,
             Self::Status | Self::List | Self::Folder | Self::Info => true,
+            // capability 拒绝批量，env 完全忽略目标：两者都不存在「有哪些应用符合」这回事。
+            Self::Capability | Self::Env => false,
         }
     }
 
     fn permits_all_target(self) -> bool {
-        // list 本身就是「看全部」，命令解析层已拒绝用户写 list <目标>。
-        !matches!(self, Self::Folder)
+        // list 本身就是「看全部」，命令解析层已拒绝用户写 list <目标>；
+        // folder / capability 问的永远是「哪一个应用」，批量没有语义。
+        !matches!(self, Self::Folder | Self::Capability)
     }
 
     fn stop_mode(self) -> Option<AppStopMode> {
@@ -73,6 +92,8 @@ impl HostAppAction {
             Self::List => "list",
             Self::Folder => "folder",
             Self::Info => "info",
+            Self::Capability => "capability",
+            Self::Env => "env",
         }
     }
 }
@@ -108,7 +129,11 @@ impl HostActionRequest {
         let raw = self.target.trim();
         if raw.is_empty() {
             return match self.action {
-                HostAppAction::Status | HostAppAction::List => Ok(HostActionTarget::All),
+                // env 与目标无关，省略是常态；给它一个 All 只是因为这一层需要一个值，
+                // 真正的语义由 dispatcher 的早返回分支负责。
+                HostAppAction::Status | HostAppAction::List | HostAppAction::Env => {
+                    Ok(HostActionTarget::All)
+                }
                 _ => Err(HostActionError::new(
                     HostActionErrorCode::MissingTarget,
                     format!("{} 需要目标，例如 {} venera", self.action.label(), self.action.label()),
@@ -117,6 +142,14 @@ impl HostActionRequest {
         }
         Ok(HostActionTarget::from_raw(raw))
     }
+}
+
+/// 一条宿主注入的环境变量：脱敏后的值可以直接展示给人和脚本。
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct HostEnvVar {
+    pub(crate) name: String,
+    pub(crate) value: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -149,6 +182,12 @@ pub(crate) enum HostAppOutcome {
         version: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         app_kind: Option<String>,
+    },
+    Capability {
+        items: Vec<crate::app_registry::AppRuntimeDeclaration>,
+    },
+    Env {
+        vars: Vec<HostEnvVar>,
     },
     Failed {
         message: String,
@@ -250,6 +289,16 @@ pub(crate) async fn dispatch(
     action: HostAppAction,
     target: HostActionTarget,
 ) -> Result<HostActionResponse, HostActionError> {
+    // env 描述的是宿主自身，没有目标语义：
+    // 提前结算，既不读应用清单，也不让用户写下的目标影响结果。
+    if action == HostAppAction::Env {
+        return Ok(HostActionResponse {
+            ok: true,
+            action,
+            results: vec![host_env_result()],
+        });
+    }
+
     let catalog = list_catalog(app)?;
     let targets = resolve_targets(action, manager, &catalog, target)?;
 
@@ -285,6 +334,9 @@ async fn execute(
         HostAppAction::Status | HostAppAction::List => status_app(manager, &entry.id),
         HostAppAction::Folder => open_folder(app, &entry.id),
         HostAppAction::Info => read_info(app, &entry.id),
+        HostAppAction::Capability => read_capabilities(app, manager, &entry.id).await,
+        // env 已在 dispatch 里结算，永远不会带着目标走到这里。
+        HostAppAction::Env => unreachable!("env 由 dispatch 提前结算，不进入单目标执行"),
     };
 
     result.unwrap_or_else(|message| HostAppOutcome::Failed { message })
@@ -380,6 +432,62 @@ fn read_info(app: &AppHandle, app_id: &str) -> Result<HostAppOutcome, String> {
         version: optional_field(&record, "version"),
         app_kind: optional_field(&record, "appKind"),
     })
+}
+
+/// 读取应用运行时的能力声明。
+///
+/// 只问运行中的应用：能力清单回答的是「此刻真的能调什么」，
+/// 为了一次查询自动拉起应用会让「看一眼」变成有副作用的操作。
+async fn read_capabilities(
+    app: &AppHandle,
+    manager: &Arc<AppLifecycleManager>,
+    app_id: &str,
+) -> Result<HostAppOutcome, String> {
+    let config = launch_config(app, app_id)?;
+    let items = describe_app_capabilities(
+        app.clone(),
+        manager.clone(),
+        &config,
+        AppLaunchOptions::default(),
+        AppCapabilityLaunchPolicy::RunningOnly,
+    )
+    .await?;
+    Ok(HostAppOutcome::Capability { items })
+}
+
+/// 宿主环境只有一份，所以 env 的结果恒为单条。
+fn host_env_result() -> HostActionResult {
+    let started = Instant::now();
+    let vars = host_env_vars();
+    HostActionResult {
+        app_id: HOST_SCOPE_ID.to_string(),
+        name: HOST_SCOPE_NAME.to_string(),
+        duration_ms: started.elapsed().as_millis() as u64,
+        outcome: HostAppOutcome::Env { vars },
+    }
+}
+
+/// 能力服务尚未启动时宿主不注入任何变量，空列表本身就是答案，无需报错。
+fn host_env_vars() -> Vec<HostEnvVar> {
+    crate::app_capabilities::app_capability_env_vars()
+        .into_iter()
+        .map(|(name, value)| HostEnvVar {
+            value: mask_secret_value(&name, &value),
+            name,
+        })
+        .collect()
+}
+
+/// 按变量名判定是否需要脱敏：同一个变量名走到哪里都是机密，值本身不必猜。
+fn mask_secret_value(name: &str, value: &str) -> String {
+    if !name.contains(SECRET_NAME_MARKER) {
+        return value.to_string();
+    }
+    if value.chars().count() < SECRET_PREFIX_CHARS {
+        return SECRET_MASK.to_string();
+    }
+    let head: String = value.chars().take(SECRET_PREFIX_CHARS).collect();
+    format!("{head}{SECRET_MASK}")
 }
 
 fn launch_config(
@@ -514,6 +622,15 @@ mod tests {
             serde_json::to_string(&HostAppAction::Info).unwrap(),
             "\"info\""
         );
+        // 这两个词会被前端联合类型原样消费，必须与窗口里敲的动作词一致。
+        assert_eq!(
+            serde_json::to_string(&HostAppAction::Capability).unwrap(),
+            "\"capability\""
+        );
+        assert_eq!(
+            serde_json::to_string(&HostAppAction::Env).unwrap(),
+            "\"env\""
+        );
     }
 
     #[test]
@@ -568,6 +685,8 @@ mod tests {
         assert!(!HostAppAction::Folder.permits_all_target());
         assert!(HostAppAction::List.permits_all_target());
         assert!(HostAppAction::Info.permits_all_target());
+        // 能力的答案是「这一个应用声明了什么」，批量问没有意义。
+        assert!(!HostAppAction::Capability.permits_all_target());
     }
 
     #[test]
@@ -597,5 +716,62 @@ mod tests {
         assert_eq!(value["state"], "info");
         assert_eq!(value["appKind"], "desktop-app");
         assert!(value.get("app_kind").is_none());
+    }
+
+    #[test]
+    fn capability_outcome_serializes_items_as_array() {
+        let outcome = HostAppOutcome::Capability {
+            items: vec![crate::app_registry::AppRuntimeDeclaration {
+                id: "overseer.capability.search".to_string(),
+                title: "搜索".to_string(),
+                kind: Some("capability".to_string()),
+                icon: None,
+                hotkey: None,
+                description: Some("在当前空间里搜索".to_string()),
+                config_fields: Vec::new(),
+            }],
+        };
+
+        let value = serde_json::to_value(outcome).expect("serialize outcome");
+        assert_eq!(value["state"], "capability");
+        let items = value["items"].as_array().expect("items 必须是数组");
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0]["id"], "overseer.capability.search");
+        assert_eq!(items[0]["title"], "搜索");
+        assert_eq!(items[0]["description"], "在当前空间里搜索");
+    }
+
+    #[test]
+    fn env_outcome_serializes_vars() {
+        let outcome = HostAppOutcome::Env {
+            vars: vec![HostEnvVar {
+                name: "FW_HOST_CAPABILITY_URL".to_string(),
+                value: "http://127.0.0.1:54321".to_string(),
+            }],
+        };
+
+        let value = serde_json::to_value(outcome).expect("serialize outcome");
+        assert_eq!(value["state"], "env");
+        assert_eq!(value["vars"][0]["name"], "FW_HOST_CAPABILITY_URL");
+        assert_eq!(value["vars"][0]["value"], "http://127.0.0.1:54321");
+    }
+
+    #[test]
+    fn masks_secret_values_by_variable_name() {
+        assert_eq!(
+            mask_secret_value("FW_HOST_CAPABILITY_TOKEN", "abcdef0123456789abcd"),
+            "abcdef012345…"
+        );
+        // 不足 12 位时保留前缀等于泄露全部，只能整体打码。
+        assert_eq!(mask_secret_value("FW_HOST_CAPABILITY_TOKEN", "short"), "…");
+        assert_eq!(
+            mask_secret_value("FW_HOST_CAPABILITY_TOKEN", "abcdef012345"),
+            "abcdef012345…"
+        );
+        // 非机密的变量原样展示，脱敏只针对名字带 TOKEN 的。
+        assert_eq!(
+            mask_secret_value("FW_HOST_CAPABILITY_URL", "http://127.0.0.1:1"),
+            "http://127.0.0.1:1"
+        );
     }
 }
