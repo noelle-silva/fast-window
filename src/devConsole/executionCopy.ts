@@ -1,8 +1,10 @@
 import type {
+  AppCapabilityDeclaration,
   AppLaunchOutcome,
   AppStopMethod,
   HostActionResult,
   HostAppAction,
+  HostEnvVar,
 } from './devConsoleApi'
 
 export type OutcomeTone = 'success' | 'warning' | 'error' | 'muted'
@@ -12,6 +14,9 @@ export type OutcomeCopy = {
   detail?: string
   tone: OutcomeTone
 }
+
+/// 能力详情的展示上限：再多就变成一堵墙，用户真正想看的是「有没有」。
+const CAPABILITY_DETAIL_LIMIT = 6
 
 /// 结果文案的唯一来源。
 ///
@@ -44,7 +49,30 @@ export function describeResult(action: HostAppAction, result: HostActionResult):
         detail: result.path,
         tone: 'muted',
       }
+    case 'capability':
+      return describeCapabilities(result.items)
+    case 'env':
+      return describeHostEnv(result.vars)
   }
+}
+
+function describeCapabilities(items: AppCapabilityDeclaration[]): OutcomeCopy {
+  if (items.length === 0) {
+    return { text: '没有声明能力', tone: 'muted' }
+  }
+  const titles = items.slice(0, CAPABILITY_DETAIL_LIMIT).map(item => item.title)
+  const detail = items.length > CAPABILITY_DETAIL_LIMIT
+    ? `${titles.join(' · ')}…`
+    : titles.join(' · ')
+  return { text: `${items.length} 个能力`, detail, tone: 'success' }
+}
+
+function describeHostEnv(vars: HostEnvVar[]): OutcomeCopy {
+  // 空列表也要给一句人话：否则窗口只剩标题，用户分不清「没注入」和「没查到」。
+  const detail = vars.length > 0
+    ? vars.map(variable => `${variable.name}=${variable.value}`).join(' · ')
+    : '未注入能力服务变量'
+  return { text: '宿主环境变量', detail, tone: 'muted' }
 }
 
 function describeStop(action: HostAppAction, method: AppStopMethod): OutcomeCopy {

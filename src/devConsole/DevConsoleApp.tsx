@@ -6,10 +6,13 @@ import ExecutionList from './ExecutionList'
 import { useDevConsole } from './useDevConsole'
 
 const COMMAND_HINT = 'stop · kill · start · restart · status · list'
-const TARGET_HINT = 'folder <应用> · info <应用> · --all 批量'
+const QUERY_HINT = 'folder · info · capability · env · clear 清屏'
+
+/// 清屏是纯前端动作：它操作的是窗口里的流水，宿主对此一无所知。
+const CLEAR_COMMANDS = new Set(['clear', 'cls'])
 
 export default function DevConsoleApp() {
-  const { apps, statuses, serverStatus, executions, run } = useDevConsole()
+  const { apps, statuses, serverStatus, executions, run, clearExecutions } = useDevConsole()
   const [input, setInput] = useState('')
 
   const candidates = useMemo(
@@ -20,6 +23,12 @@ export default function DevConsoleApp() {
   function submit() {
     const trimmed = input.trim()
     if (!trimmed) return
+    // 本地命令先拦截：没有后端动作可发，也不该在流水里留下一条「执行记录」。
+    if (CLEAR_COMMANDS.has(trimmed.toLowerCase())) {
+      clearExecutions()
+      setInput('')
+      return
+    }
     void run(trimmed)
     setInput('')
   }
@@ -78,7 +87,7 @@ export default function DevConsoleApp() {
           {COMMAND_HINT}
         </Typography>
         <Typography variant="caption" color="text.disabled" sx={{ display: 'block' }}>
-          {TARGET_HINT}
+          {QUERY_HINT}
         </Typography>
 
         {candidates.length > 0 ? (

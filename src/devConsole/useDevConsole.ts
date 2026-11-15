@@ -81,5 +81,8 @@ export function useDevConsole() {
     }
   }, [refresh])
 
-  return { apps, statuses, serverStatus, executions, run, refresh }
+  // 清空执行流水只动窗口本地状态：流水是给人看的历史，不需要经过后端。
+  const clearExecutions = useCallback(() => setExecutions([]), [])
+
+  return { apps, statuses, serverStatus, executions, run, refresh, clearExecutions }
 }

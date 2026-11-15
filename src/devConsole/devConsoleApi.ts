@@ -14,6 +14,8 @@ export type HostAppAction =
   | 'list'
   | 'folder'
   | 'info'
+  | 'capability'
+  | 'env'
 
 export type AppStopMethod = 'alreadyStopped' | 'graceful' | 'killed' | 'terminated'
 
@@ -23,6 +25,19 @@ type ResultBase = {
   appId: string
   name: string
   durationMs: number
+}
+
+/// 应用运行时声明的能力：宿主只透传，窗口只展示。
+export type AppCapabilityDeclaration = {
+  id: string
+  title: string
+  description?: string
+}
+
+/// 宿主注入的环境变量：token 类变量到达前端时已被脱敏。
+export type HostEnvVar = {
+  name: string
+  value: string
 }
 
 export type HostActionResult =
@@ -38,6 +53,8 @@ export type HostActionResult =
     })
   | (ResultBase & { state: 'folder'; path: string })
   | (ResultBase & { state: 'info'; path: string; version?: string; appKind?: string })
+  | (ResultBase & { state: 'capability'; items: AppCapabilityDeclaration[] })
+  | (ResultBase & { state: 'env'; vars: HostEnvVar[] })
   | (ResultBase & { state: 'failed'; message: string })
 
 export type HostActionResponse = {
