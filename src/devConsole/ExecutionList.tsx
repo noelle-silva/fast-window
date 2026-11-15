@@ -1,6 +1,7 @@
 import { Box, Chip, Stack, Typography } from '@mui/material'
 import type { Theme } from '@mui/material/styles'
 import { applyCandidate } from './commandSuggest'
+import type { CommandHelpEntry } from './commandHelp'
 import { describeResult } from './executionCopy'
 import type { OutcomeTone } from './executionCopy'
 import type { DevConsoleExecution } from './useDevConsole'
@@ -40,25 +41,43 @@ type ExecutionRowProps = {
 }
 
 function ExecutionRow({ execution, onPickCandidate }: ExecutionRowProps) {
+  return (
+    <Box sx={{ py: 1.1, borderBottom: '1px solid', borderColor: 'divider' }}>
+      <ExecutionHeader execution={execution} />
+      {/* 帮助条目是窗口自己生成的清单，没有后端结局可渲染。 */}
+      {execution.kind === 'help' ? (
+        <CommandHelpList entries={execution.helpEntries ?? []} />
+      ) : (
+        <ExecutionOutcome execution={execution} onPickCandidate={onPickCandidate} />
+      )}
+    </Box>
+  )
+}
+
+function ExecutionHeader({ execution }: { execution: DevConsoleExecution }) {
+  return (
+    <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
+      <Typography
+        variant="caption"
+        sx={{ fontFamily: 'monospace', color: 'text.secondary', minWidth: 62 }}
+      >
+        {formatTime(execution.at)}
+      </Typography>
+      <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
+        {execution.command}
+      </Typography>
+      <Box sx={{ flex: 1 }} />
+      <ExecutionBadge execution={execution} />
+    </Stack>
+  )
+}
+
+function ExecutionOutcome({ execution, onPickCandidate }: ExecutionRowProps) {
   const response = execution.response
   const error = execution.error
 
   return (
-    <Box sx={{ py: 1.1, borderBottom: '1px solid', borderColor: 'divider' }}>
-      <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
-        <Typography
-          variant="caption"
-          sx={{ fontFamily: 'monospace', color: 'text.secondary', minWidth: 62 }}
-        >
-          {formatTime(execution.at)}
-        </Typography>
-        <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
-          {execution.command}
-        </Typography>
-        <Box sx={{ flex: 1 }} />
-        <ExecutionBadge execution={execution} />
-      </Stack>
-
+    <>
       {response ? (
         <Stack spacing={0.4} sx={{ mt: 0.75, pl: '70px' }}>
           {response.results.map(result => {
@@ -124,11 +143,46 @@ function ExecutionRow({ execution, onPickCandidate }: ExecutionRowProps) {
           ) : null}
         </Box>
       ) : null}
+    </>
+  )
+}
+
+/// 缩进与执行记录的详情行保持一致，清单和结局在视觉上属于同一层。
+function CommandHelpList({ entries }: { entries: CommandHelpEntry[] }) {
+  return (
+    <Box sx={{ mt: 0.75, pl: '70px' }}>
+      <Typography variant="caption" sx={{ display: 'block', fontWeight: 600 }}>
+        命令清单
+      </Typography>
+      <Stack spacing={0.4} sx={{ mt: 0.5 }}>
+        {entries.map(entry => (
+          <Stack
+            key={entry.usage}
+            direction="row"
+            spacing={1}
+            sx={{ alignItems: 'baseline', flexWrap: 'wrap' }}
+          >
+            <Typography
+              variant="caption"
+              sx={{ fontFamily: 'monospace', fontWeight: 700, minWidth: 132 }}
+            >
+              {entry.usage}
+            </Typography>
+            <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+              {entry.description}
+            </Typography>
+          </Stack>
+        ))}
+      </Stack>
     </Box>
   )
 }
 
 function ExecutionBadge({ execution }: { execution: DevConsoleExecution }) {
+  // 帮助既不是执行中，也不该显示成「已受理」：它压根没有被宿主受理过。
+  if (execution.kind === 'help') {
+    return <Chip size="small" variant="outlined" label="帮助" />
+  }
   if (execution.phase === 'running') {
     return <Chip size="small" variant="outlined" label="执行中" />
   }

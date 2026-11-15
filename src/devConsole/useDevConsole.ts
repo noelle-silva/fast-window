@@ -12,12 +12,17 @@ import type {
   HostActionError,
   HostActionResponse,
 } from './devConsoleApi'
+import { COMMAND_HELP } from './commandHelp'
+import type { CommandHelpEntry } from './commandHelp'
 
 export type DevConsoleExecution = {
   id: number
   at: number
   command: string
   phase: 'running' | 'done' | 'failed'
+  // `command` 由宿主回答，`help` 是窗口自己生成的清单，两者正文形状不同。
+  kind: 'command' | 'help'
+  helpEntries?: CommandHelpEntry[]
   response?: HostActionResponse
   error?: HostActionError
 }
@@ -62,7 +67,7 @@ export function useDevConsole() {
 
     const id = nextExecutionId.current++
     setExecutions(previous => [
-      { id, at: Date.now(), command: trimmed, phase: 'running' },
+      { id, at: Date.now(), command: trimmed, phase: 'running', kind: 'command' },
       ...previous,
     ])
 
@@ -84,5 +89,30 @@ export function useDevConsole() {
   // 清空执行流水只动窗口本地状态：流水是给人看的历史，不需要经过后端。
   const clearExecutions = useCallback(() => setExecutions([]), [])
 
-  return { apps, statuses, serverStatus, executions, run, refresh, clearExecutions }
+  // 帮助同样只动本地流水：插一条记录，其余状态一概不变。
+  const showHelp = useCallback(() => {
+    const id = nextExecutionId.current++
+    setExecutions(previous => [
+      {
+        id,
+        at: Date.now(),
+        command: 'help',
+        phase: 'done',
+        kind: 'help',
+        helpEntries: COMMAND_HELP,
+      },
+      ...previous,
+    ])
+  }, [])
+
+  return {
+    apps,
+    statuses,
+    serverStatus,
+    executions,
+    run,
+    refresh,
+    clearExecutions,
+    showHelp,
+  }
 }

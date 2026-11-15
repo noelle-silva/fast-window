@@ -6,13 +6,15 @@ import ExecutionList from './ExecutionList'
 import { useDevConsole } from './useDevConsole'
 
 const COMMAND_HINT = 'stop · kill · start · restart · status · list'
-const QUERY_HINT = 'folder · info · capability · env · clear 清屏'
+const QUERY_HINT = 'folder · info · capability · env · clear 清屏 · help 帮助'
 
-/// 清屏是纯前端动作：它操作的是窗口里的流水，宿主对此一无所知。
+/// 本地命令的分档：清屏和帮助都只操作窗口里的流水，宿主对此一无所知。
 const CLEAR_COMMANDS = new Set(['clear', 'cls'])
+const HELP_COMMANDS = new Set(['help', '?'])
 
 export default function DevConsoleApp() {
-  const { apps, statuses, serverStatus, executions, run, clearExecutions } = useDevConsole()
+  const { apps, statuses, serverStatus, executions, run, clearExecutions, showHelp } =
+    useDevConsole()
   const [input, setInput] = useState('')
 
   const candidates = useMemo(
@@ -23,14 +25,23 @@ export default function DevConsoleApp() {
   function submit() {
     const trimmed = input.trim()
     if (!trimmed) return
-    // 本地命令先拦截：没有后端动作可发，也不该在流水里留下一条「执行记录」。
-    if (CLEAR_COMMANDS.has(trimmed.toLowerCase())) {
-      clearExecutions()
-      setInput('')
-      return
-    }
-    void run(trimmed)
     setInput('')
+    if (runLocalCommand(trimmed)) return
+    void run(trimmed)
+  }
+
+  // 本地命令命中即消费：没有后端动作可发，也不会留下一条待后端回答的执行记录。
+  function runLocalCommand(command: string): boolean {
+    const normalized = command.toLowerCase()
+    if (CLEAR_COMMANDS.has(normalized)) {
+      clearExecutions()
+      return true
+    }
+    if (HELP_COMMANDS.has(normalized)) {
+      showHelp()
+      return true
+    }
+    return false
   }
 
   function pickCandidate(nextInput: string) {
