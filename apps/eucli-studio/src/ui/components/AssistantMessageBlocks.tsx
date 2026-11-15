@@ -15,7 +15,7 @@ import { AssistantMessageHost } from '../../render/assistantMessageHost'
 import type { AiChatToastOptions } from '../../gateway/capabilities'
 import { readToolConfirmationInfo } from '../../domain/toolConfirmation'
 import { normalizeDurationMs } from '../../domain/messageTiming'
-import { toolCallPhase } from '../../domain/toolCallState'
+import { toolCallPhase, toolResultStatusText, toolStateText } from '../../domain/toolCallState'
 import { toolLiveElapsedMs, toolRunAnchorMs } from '../../domain/toolRunTiming'
 import type { ReasoningDisplayMode } from '../../domain/reasoningDisplay'
 import { AssistantReasoningPanel } from './AssistantReasoningPanel'
@@ -218,7 +218,9 @@ function ToolSessionCard(props: {
   const state = String(part?.state || '').trim()
   const result = item.blocks.find((block) => block.kind === 'tool_result')?.part?.result
   const status = result && typeof result === 'object' ? String(result.status || '').trim() : ''
-  const summary = [state, status].filter(Boolean).join(' · ')
+  // 呼叫状态与结果状态各取中文文案；两者文案相同时只留一份，
+  // 避免「已取消 · 已取消」这种重复读数。
+  const summary = Array.from(new Set([toolStateText(state), toolResultStatusText(status)].filter(Boolean))).join(' · ')
   const description = String(part?.input?.description || '').trim()
 
   return (

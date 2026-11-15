@@ -25,6 +25,8 @@ export function toolResultStatusText(value: unknown): string {
   const lower = status.toLowerCase()
   if (lower === 'success' || lower === 'completed' || lower === 'ok') return '成功'
   if (lower === 'error' || lower === 'failed' || lower === 'failure') return '失败'
+  if (lower === 'cancelled' || lower === 'canceled') return '已取消'
+  if (lower === 'denied') return '已拒绝'
   return status
 }
 

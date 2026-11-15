@@ -9,6 +9,8 @@ describe('工具调用状态词表', () => {
     expect(toolStateText('', '未知状态')).toBe('未知状态')
     expect(toolResultStatusText('success')).toBe('成功')
     expect(toolResultStatusText('failed')).toBe('失败')
+    expect(toolResultStatusText('cancelled')).toBe('已取消')
+    expect(toolResultStatusText('denied')).toBe('已拒绝')
     expect(toolResultStatusText('weird')).toBe('weird')
   })
 
