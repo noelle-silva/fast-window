@@ -17,6 +17,12 @@ import {
   selectionAtLatest,
   type ViewSelection,
 } from '../domain/viewSelection'
+import {
+  handOffViewFollow,
+  NO_VIEW_FOLLOW,
+  planViewFollow,
+  type ViewFollowState,
+} from '../domain/viewFollow'
 import { useComposerImagePicker } from './hooks/useComposerImagePicker'
 import { useComposerTools } from './hooks/useComposerTools'
 import { useChatSessionPickers } from './hooks/useChatSessionPickers'
@@ -601,25 +607,31 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     setSelection(placeSelection(renderChat, forkFromMid))
   }, [branchDraftKey])
 
-  // 动作一：我发起的那次运行被受理后，位置移到这次运行的节点。
-  // 只搬一次：同一次运行不重复搬；节点还没进正文就等下一帧再试。
+  // 动作一：我发起的那次运行被受理后，位置搬到这次运行的节点，一次运行只搬一次。
+  //
+  // 分界写在这里：受理是动作，允许写位置；产出推进是事实，绝不写位置。
+  // 之后的跟随交给 viewSelection 的 atEnd——用户退到上游看历史时，事实不能把人拽回去。
   const followRunId = String((s as any)?.followRun || '')
-  const placedRunRef = React.useRef('')
+  const viewFollowRef = React.useRef<ViewFollowState>(NO_VIEW_FOLLOW)
+  // 用户自己动视线的唯一出口：本次运行的落点从此作废，先搬一步的不许再补搬。
+  const handOffRunFollow = useEvent(() => {
+    viewFollowRef.current = handOffViewFollow(viewFollowRef.current, String((s as any)?.followRun || ''))
+  })
   React.useEffect(() => {
-    if (!followRunId || placedRunRef.current === followRunId) return
+    if (!followRunId) return
     const card = activeSessionRunCards.find((item: any) => String(item?.runId || '') === followRunId)
     if (!card) return
-    // 跟到这次运行真正生成的那条：产出节点（必须长在本次输入之下，函数里已守）。
-    // 产出推进就跟着推进；这次运行结束后卡片消失，自然停住。
+    // 落点取这次运行真正生成的那条：产出节点（必须长在本次输入之下，函数里已守）。
+    // 节点还没进正文就等下一帧再试，不提前把这次运行锁死。
     const node = resolveRunFocusMid(renderChat, {
       anchorMid: String(card?.inputMessageId || ''),
       outputMid: String(card?.lastMessageId || ''),
     })
     if (!node || !chatAllById.has(node)) return
-    const placedKey = `${followRunId}:${node}`
-    if (placedRunRef.current === placedKey) return
-    placedRunRef.current = placedKey
-    setSelection(followFrom(node))
+    const plan = planViewFollow(viewFollowRef.current, { runId: followRunId, focusMid: node })
+    if (!plan.place) return
+    viewFollowRef.current = plan.state
+    setSelection(followFrom(plan.place))
   }, [followRunId, activeSessionRunCardsKey, chatAllMessagesRaw.length, renderChat])
 
   // 只有「我正看着的那条会消失」才退回上一级并停住：
@@ -647,7 +659,10 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     if (!affected) return
 
     const parentMid = String(chatAllById.get(target)?.parentMid || '')
-    if (parentMid) setSelection(placeSelection(renderChat, parentMid))
+    if (!parentMid) return
+    // 删掉正在看的那一支也是一次动作：视线退回上一级，本次运行的落点同样交还。
+    handOffRunFollow()
+    setSelection(placeSelection(renderChat, parentMid))
   })
 
   // 切入会话：会话真的换了、而且位置不属于这份会话时，才落点。
@@ -709,8 +724,11 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     activeSessionRunCards,
     activeSessionRunCardsKey,
     viewFocusMid,
-    // 点节点就是一次动作：把位置放到被点的节点上，别处不做判断。
-    setViewIntentFromNodeClick: (mid: string) => setSelection(placeSelection(renderChat, mid)),
+    // 点节点就是一次动作：本次运行的落点先交还，再把位置放到被点的节点上。
+    setViewIntentFromNodeClick: (mid: string) => {
+      handOffRunFollow()
+      setSelection(placeSelection(renderChat, mid))
+    },
     branchDraft,
     branchDraftKey,
     pauseFollow,
@@ -1137,7 +1155,11 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     activeSessionRunCards,
     activeSessionRunCardsKey,
     chatAllById,
-    onBranchSiblingSelected: (mid: string) => setSelection(followFrom(mid)),
+    // 切兄弟分支同样是用户动作：本次运行的落点交还，位置跟到自己选的那条。
+    onBranchSiblingSelected: (mid: string) => {
+      handOffRunFollow()
+      setSelection(followFrom(mid))
+    },
     setBranchNav,
     pauseFollow,
     autoScrollBlockUntilRef,
