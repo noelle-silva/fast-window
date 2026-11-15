@@ -7,39 +7,40 @@ describe('messageMetaLine', () => {
     expect(buildUserMetaLine({ contextTokens: 0, timeText: '15:30' })).toBe('? · 15:30')
   })
 
-  it('puts the request model left of the cache rate', () => {
+  it('puts the first token wait left of the send time', () => {
     expect(
       buildAssistantMetaLine({
         modelText: '主供应商 / gpt-4.1',
         cacheRate: 0.857,
         contextTokens: 32000,
+        firstTokenText: '首字 0.8 秒',
         timeText: '15:30',
         durationText: '3.2s',
       }),
-    ).toBe('主供应商 / gpt-4.1 · 85.7% · 32k · 15:30 · 3.2s')
+    ).toBe('主供应商 / gpt-4.1 · 85.7% · 32k · 首字 0.8 秒 · 15:30 · 3.2s')
   })
 
   it('skips the model slot when the request model is unknown', () => {
     expect(
-      buildAssistantMetaLine({ modelText: '', cacheRate: 0.8, contextTokens: 1500, timeText: '15:30', durationText: '1s' }),
+      buildAssistantMetaLine({ modelText: '', cacheRate: 0.8, contextTokens: 1500, firstTokenText: '', timeText: '15:30', durationText: '1s' }),
     ).toBe('80% · 1.5k · 15:30 · 1s')
   })
 
   it('shows a question mark when upstream gives no cache rate', () => {
     expect(
-      buildAssistantMetaLine({ modelText: '', cacheRate: null, contextTokens: 1500, timeText: '15:30', durationText: '1s' }),
+      buildAssistantMetaLine({ modelText: '', cacheRate: null, contextTokens: 1500, firstTokenText: '', timeText: '15:30', durationText: '1s' }),
     ).toBe('? · 1.5k · 15:30 · 1s')
   })
 
   it('shows a question mark when upstream gives no context tokens', () => {
     expect(
-      buildAssistantMetaLine({ modelText: '', cacheRate: 0.8, contextTokens: 0, timeText: '15:30', durationText: '1s' }),
+      buildAssistantMetaLine({ modelText: '', cacheRate: 0.8, contextTokens: 0, firstTokenText: '', timeText: '15:30', durationText: '1s' }),
     ).toBe('80% · ? · 15:30 · 1s')
   })
 
-  it('drops the time and duration slots when they have no fact', () => {
+  it('drops the first token, time and duration slots when they have no fact', () => {
     expect(
-      buildAssistantMetaLine({ modelText: '', cacheRate: 1, contextTokens: 1000, timeText: '', durationText: '' }),
+      buildAssistantMetaLine({ modelText: '', cacheRate: 1, contextTokens: 1000, firstTokenText: '', timeText: '', durationText: '' }),
     ).toBe('100% · 1k')
   })
 

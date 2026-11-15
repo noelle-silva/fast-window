@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { hasAssistantPrimaryOutput, isAssistantGenerating } from '../../domain/assistantRunState'
+import { hasAssistantAnyOutput, isAssistantGenerating } from '../../domain/assistantRunState'
 import { messageVisibleText } from '../../domain/chatMessageDisplay'
 import { messageRefreshScope } from '../../domain/uiRefreshScope'
 import type { ReasoningDisplayMode } from '../../domain/reasoningDisplay'
@@ -30,7 +30,9 @@ export function LiveAssistantBody(props: {
   const live = (mid ? controller?.getMessageById?.(mid) : null) || message
   const hasRuntimeRunState = !!(live?.assistantRun && typeof live.assistantRun === 'object') || typeof live?.pending === 'boolean'
   const liveIsGenerating = hasRuntimeRunState ? isAssistantGenerating(live) : isGenerating
-  const awaitingFirstOutput = liveIsGenerating && !hasAssistantPrimaryOutput(live)
+  const awaitingFirstToken = liveIsGenerating && !hasAssistantAnyOutput(live)
+  // 首字秒表的起点：运行状态给出的发起时刻；缺少运行时退回消息创建时刻。
+  const firstTokenStartedAt = Number(live?.assistantRun?.startedAt || live?.createdAt || 0)
   const text = messageVisibleText(live)
   const parts = Array.isArray(live?.parts) ? live.parts : []
   return (
@@ -48,7 +50,7 @@ export function LiveAssistantBody(props: {
         disabled={disabled}
         cacheScope={cacheScope}
       />
-      {awaitingFirstOutput ? <AssistantReplyPendingIndicator /> : null}
+      {awaitingFirstToken ? <AssistantReplyPendingIndicator startedAtMs={firstTokenStartedAt} /> : null}
     </>
   )
 }

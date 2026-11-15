@@ -16,7 +16,7 @@ import { AssistantErrorNotice } from './AssistantErrorNotice'
 import { LiveAssistantBody } from './LiveAssistantBody'
 import { MessageRowActionBar } from './MessageRowActionBar'
 import { RefImageThumb, StickerText } from './MessageMedia'
-import { formatDurationMs } from '../utils/time'
+import { formatDurationMs, formatFirstTokenMs } from '../utils/time'
 import { useRenderProbe } from '../../diagnostics/renderProbe'
 
 type MessageRole = 'user' | 'assistant'
@@ -382,15 +382,17 @@ function MessageRowImpl(props: MessageRowProps) {
   // 消息头模型文本：保持请求侧引用的原样，实际发出去的模型在底部元信息行展示。
   const roleModelText = !isUser ? formatModelRefText((m as any)?.modelRef) : ''
   const replyDurationText = !isUser ? formatDurationMs(resolveReplyDurationMs(m)) : ''
+  const firstTokenText = !isUser ? formatFirstTokenMs((m as any)?.firstTokenMs) : ''
   const time = controller.fmtTime(Number(m?.createdAt || 0))
   // 元信息行在操作按钮左侧：用户消息是「上下文 · 时间」，
-  // AI 消息是「供应商/模型id · 缓存率 · 上下文 · 时间 · 耗时」。
+  // AI 消息是「供应商/模型id · 缓存率 · 上下文 · 首字 · 时间 · 耗时」。
   const actionMetaText = isUser
     ? buildUserMetaLine({ contextTokens: (m as any)?.contextTokens, timeText: time })
     : buildAssistantMetaLine({
         modelText: formatRequestModelText((m as any)?.requestModel),
         cacheRate: (m as any)?.cacheRate,
         contextTokens: (m as any)?.contextTokens,
+        firstTokenText,
         timeText: time,
         durationText: replyDurationText,
       })

@@ -98,6 +98,7 @@ export function normalizeChatMessage(input: any, options?: { activeBranchId?: un
     toolImages,
     tokenEstimate: normalizeMessageTokenEstimate((m as any).tokenEstimate),
     modelDurationMs: normalizeDurationMs((m as any).modelDurationMs),
+    firstTokenMs: normalizeDurationMs((m as any).firstTokenMs),
     contextTokens: normalizeMessageContextTokens((m as any).contextTokens),
     ...normalizeMessageGroup(m),
     branchId: normalizeBranchId((m as any).branchId || options?.activeBranchId || CHAT_DEFAULT_BRANCH_ID),

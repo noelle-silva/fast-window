@@ -9,6 +9,7 @@ describe('message timing normalization', () => {
       type: 'assistant',
       content: '回答',
       modelDurationMs: 4321,
+      firstTokenMs: 890,
       parts: [
         { id: 'p1', type: 'text', text: '回答', durationMs: 1234 },
         { id: 'p2', type: 'reasoning', text: '思考', durationMs: 2345 },
@@ -17,6 +18,7 @@ describe('message timing normalization', () => {
     })
 
     expect(message.modelDurationMs).toBe(4321)
+    expect(message.firstTokenMs).toBe(890)
     expect(message.parts[0].durationMs).toBe(1234)
     expect(message.parts[1].durationMs).toBe(2345)
     expect(message.parts[2].result.durationMs).toBe(777)
@@ -31,6 +33,7 @@ describe('message timing normalization', () => {
     })
 
     expect(message.modelDurationMs).toBe(0)
+    expect(message.firstTokenMs).toBe(0)
     expect(message.parts[0].durationMs).toBe(0)
   })
 })

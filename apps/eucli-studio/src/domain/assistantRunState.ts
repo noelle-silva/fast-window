@@ -124,7 +124,23 @@ export function hasAssistantPrimaryOutput(message: unknown) {
 }
 
 export function isAssistantAwaitingFirstOutput(message: unknown) {
-  return isAssistantGenerating(message) && !hasAssistantPrimaryOutput(message)
+  return isAssistantGenerating(message) && !hasAssistantAnyOutput(message)
+}
+
+// hasAssistantAnyOutput 判断本轮是否已经出现任何真实增量：思考、正文或工具。
+// 首字等待的实时秒表只在这之前显示；首个增量到达，首字就已经发生了。
+export function hasAssistantAnyOutput(message: unknown) {
+  const m = message && typeof message === 'object' ? (message as any) : null
+  if (!m || m.role !== 'assistant') return false
+  const content = String(m.content ?? '').trim()
+  if (content && content !== ASSISTANT_RUNNING_CONTENT) return true
+  const parts = Array.isArray(m.parts) ? m.parts : []
+  return parts.some((part: any) => {
+    if (!part || typeof part !== 'object') return false
+    const type = String(part.type || '').trim()
+    if (type === 'text' || type === 'reasoning') return !!String(part.text || '').trim()
+    return type === 'tool'
+  })
 }
 
 export function assistantRunGenerationId(message: unknown) {

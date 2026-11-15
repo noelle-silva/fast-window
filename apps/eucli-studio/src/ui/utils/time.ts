@@ -23,3 +23,19 @@ export function formatDurationMs(value: unknown) {
   if (minutes === 60) return `${hours + 1} 小时 0 分`
   return `${hours} 小时 ${minutes} 分`
 }
+
+// formatFirstTokenMs 展示已落定的首字等待；没有真值时不占位。
+export function formatFirstTokenMs(value: unknown) {
+  const ms = Number(value)
+  if (!isFinite(ms) || ms <= 0) return ''
+  const text = formatDurationMs(ms)
+  return text ? `首字 ${text}` : ''
+}
+
+// formatFirstTokenWaitMs 展示运行中的首字等待：计时刚起步时也给出 0.0 秒，
+// 让秒表从发起那一刻起就有读数。
+export function formatFirstTokenWaitMs(value: unknown) {
+  const ms = Number(value)
+  if (!isFinite(ms) || ms < 0) return ''
+  return `首字 ${formatDurationMs(ms) || '0.0 秒'}`
+}
