@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -7,7 +8,12 @@ use serde_json::Value;
 use tauri::AppHandle;
 
 use crate::app_lifecycle::manager::{
-    app_stop_with_mode, AppLifecycleManager, AppStopMethod, AppStopMode,
+    app_status_inner, app_stop_with_mode, AppRuntimePhase, AppStopMethod, AppStopMode,
+};
+use crate::app_lifecycle::{
+    app_launch_inner_with_cold_start_policy_and_options, build_registered_app_launch_args,
+    AppColdStartPolicy, AppLaunchOptions, AppLaunchOutcome, AppLifecycleManager,
+    RegisteredAppLaunchConfig,
 };
 
 pub(crate) mod command;
@@ -24,13 +30,49 @@ use target::{AppCandidate, AppCatalogEntry, TargetResolution};
 pub(crate) enum HostAppAction {
     Stop,
     ForceStop,
+    Start,
+    Restart,
+    /// 查状态；不带目标时等价于看全部。
+    Status,
+    /// 看全部注册应用的清单与运行态。
+    List,
+    Folder,
+    Info,
 }
 
 impl HostAppAction {
-    fn stop_mode(self) -> AppStopMode {
+    /// `--all` 的含义随动作变化：停止类针对运行中的，启动针对未运行的，查询针对全部。
+    fn matches_all_target(self, running: bool) -> bool {
         match self {
-            Self::Stop => AppStopMode::Graceful,
-            Self::ForceStop => AppStopMode::Force,
+            Self::Stop | Self::ForceStop | Self::Restart => running,
+            Self::Start => !running,
+            Self::Status | Self::List | Self::Folder | Self::Info => true,
+        }
+    }
+
+    fn permits_all_target(self) -> bool {
+        // list 本身就是「看全部」，命令解析层已拒绝用户写 list <目标>。
+        !matches!(self, Self::Folder)
+    }
+
+    fn stop_mode(self) -> Option<AppStopMode> {
+        match self {
+            Self::Stop => Some(AppStopMode::Graceful),
+            Self::ForceStop => Some(AppStopMode::Force),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Stop => "stop",
+            Self::ForceStop => "kill",
+            Self::Start => "start",
+            Self::Restart => "restart",
+            Self::Status => "status",
+            Self::List => "list",
+            Self::Folder => "folder",
+            Self::Info => "info",
         }
     }
 }
@@ -38,14 +80,14 @@ impl HostAppAction {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum HostActionTarget {
     App(String),
-    AllRunning,
+    All,
 }
 
 /// `--all` 是保留目标：只有它表示批量，其余一律按应用名解析。
 impl HostActionTarget {
     pub(crate) fn from_raw(raw: &str) -> Self {
         if raw.trim() == "--all" {
-            Self::AllRunning
+            Self::All
         } else {
             Self::App(raw.trim().to_string())
         }
@@ -56,14 +98,61 @@ impl HostActionTarget {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct HostActionRequest {
     pub(crate) action: HostAppAction,
+    #[serde(default)]
     pub(crate) target: String,
 }
 
+impl HostActionRequest {
+    /// 结构化入口的目标解析：只有查询类动作允许省略目标。
+    pub(crate) fn resolve_target(&self) -> Result<HostActionTarget, HostActionError> {
+        let raw = self.target.trim();
+        if raw.is_empty() {
+            return match self.action {
+                HostAppAction::Status | HostAppAction::List => Ok(HostActionTarget::All),
+                _ => Err(HostActionError::new(
+                    HostActionErrorCode::MissingTarget,
+                    format!("{} 需要目标，例如 {} venera", self.action.label(), self.action.label()),
+                )),
+            };
+        }
+        Ok(HostActionTarget::from_raw(raw))
+    }
+}
+
 #[derive(Debug, Serialize)]
-#[serde(tag = "state", rename_all = "camelCase")]
+#[serde(tag = "state", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub(crate) enum HostAppOutcome {
-    Stopped { method: AppStopMethod },
-    Failed { message: String },
+    Stopped {
+        method: AppStopMethod,
+    },
+    Started {
+        launch: AppLaunchOutcome,
+    },
+    Restarted {
+        method: AppStopMethod,
+    },
+    Status {
+        running: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pid: Option<u32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        phase: Option<AppRuntimePhase>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        started_at: Option<u64>,
+    },
+    Folder {
+        path: String,
+    },
+    Info {
+        path: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        version: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        app_kind: Option<String>,
+    },
+    Failed {
+        message: String,
+    },
 }
 
 #[derive(Debug, Serialize)]
@@ -91,6 +180,7 @@ pub(crate) enum HostActionErrorCode {
     EmptyCommand,
     UnknownAction,
     MissingTarget,
+    InvalidCommand,
     TargetNotFound,
     TargetAmbiguous,
     CatalogUnavailable,
@@ -161,18 +251,12 @@ pub(crate) async fn dispatch(
     target: HostActionTarget,
 ) -> Result<HostActionResponse, HostActionError> {
     let catalog = list_catalog(app)?;
-    let targets = resolve_targets(manager, &catalog, target)?;
+    let targets = resolve_targets(action, manager, &catalog, target)?;
 
-    let mode = action.stop_mode();
     let mut results = Vec::with_capacity(targets.len());
     for entry in targets {
         let started = Instant::now();
-        let outcome = match app_stop_with_mode(manager, entry.id.clone(), mode).await {
-            Ok(result) => HostAppOutcome::Stopped {
-                method: result.method,
-            },
-            Err(message) => HostAppOutcome::Failed { message },
-        };
+        let outcome = execute(app, manager, action, &entry).await;
         results.push(HostActionResult {
             app_id: entry.id,
             name: entry.name,
@@ -188,17 +272,170 @@ pub(crate) async fn dispatch(
     })
 }
 
+async fn execute(
+    app: &AppHandle,
+    manager: &Arc<AppLifecycleManager>,
+    action: HostAppAction,
+    entry: &AppCatalogEntry,
+) -> HostAppOutcome {
+    let result = match action {
+        HostAppAction::Stop | HostAppAction::ForceStop => stop_app(manager, action, &entry.id).await,
+        HostAppAction::Start => start_app(app, manager, &entry.id).await,
+        HostAppAction::Restart => restart_app(app, manager, &entry.id).await,
+        HostAppAction::Status | HostAppAction::List => status_app(manager, &entry.id),
+        HostAppAction::Folder => open_folder(app, &entry.id),
+        HostAppAction::Info => read_info(app, &entry.id),
+    };
+
+    result.unwrap_or_else(|message| HostAppOutcome::Failed { message })
+}
+
+async fn stop_app(
+    manager: &Arc<AppLifecycleManager>,
+    action: HostAppAction,
+    app_id: &str,
+) -> Result<HostAppOutcome, String> {
+    let mode = action
+        .stop_mode()
+        .ok_or_else(|| "该动作不支持停止".to_string())?;
+    let result = app_stop_with_mode(manager, app_id.to_string(), mode).await?;
+    Ok(HostAppOutcome::Stopped {
+        method: result.method,
+    })
+}
+
+async fn start_app(
+    app: &AppHandle,
+    manager: &Arc<AppLifecycleManager>,
+    app_id: &str,
+) -> Result<HostAppOutcome, String> {
+    let config = launch_config(app, app_id)?;
+    let launch = launch_registered_app(app, manager, config).await?;
+    Ok(HostAppOutcome::Started { launch })
+}
+
+async fn restart_app(
+    app: &AppHandle,
+    manager: &Arc<AppLifecycleManager>,
+    app_id: &str,
+) -> Result<HostAppOutcome, String> {
+    let stop = app_stop_with_mode(manager, app_id.to_string(), AppStopMode::Graceful).await?;
+    let config = launch_config(app, app_id)?;
+    launch_registered_app(app, manager, config).await?;
+    Ok(HostAppOutcome::Restarted {
+        method: stop.method,
+    })
+}
+
+async fn launch_registered_app(
+    app: &AppHandle,
+    manager: &Arc<AppLifecycleManager>,
+    config: RegisteredAppLaunchConfig,
+) -> Result<AppLaunchOutcome, String> {
+    let args = build_registered_app_launch_args(&config, "show", None);
+    let options = AppLaunchOptions {
+        extra_envs: crate::app_capabilities::app_capability_env_vars(),
+    };
+
+    app_launch_inner_with_cold_start_policy_and_options(
+        app.clone(),
+        manager.clone(),
+        config.id,
+        config.path,
+        args,
+        AppColdStartPolicy::Allow,
+        options,
+    )
+    .await
+}
+
+fn status_app(
+    manager: &Arc<AppLifecycleManager>,
+    app_id: &str,
+) -> Result<HostAppOutcome, String> {
+    let status = app_status_inner(manager, app_id)?;
+    Ok(HostAppOutcome::Status {
+        running: status.running,
+        pid: status.pid,
+        phase: status.phase,
+        started_at: status.started_at,
+    })
+}
+
+fn open_folder(app: &AppHandle, app_id: &str) -> Result<HostAppOutcome, String> {
+    let path = registered_app_path(app, app_id)?;
+    let dir = Path::new(&path)
+        .parent()
+        .ok_or_else(|| "应用路径没有上级目录".to_string())?;
+    crate::workspace::open_absolute_existing_dir(dir)?;
+    Ok(HostAppOutcome::Folder {
+        path: dir.to_string_lossy().to_string(),
+    })
+}
+
+fn read_info(app: &AppHandle, app_id: &str) -> Result<HostAppOutcome, String> {
+    let record = load_record(app, app_id)?;
+    Ok(HostAppOutcome::Info {
+        path: record_field(&record, "path")?,
+        version: optional_field(&record, "version"),
+        app_kind: optional_field(&record, "appKind"),
+    })
+}
+
+fn launch_config(
+    app: &AppHandle,
+    app_id: &str,
+) -> Result<RegisteredAppLaunchConfig, String> {
+    let record = load_record(app, app_id)?;
+    serde_json::from_value(record).map_err(|error| format!("解析启动配置失败: {error}"))
+}
+
+fn registered_app_path(app: &AppHandle, app_id: &str) -> Result<String, String> {
+    record_field(&load_record(app, app_id)?, "path")
+}
+
+fn load_record(app: &AppHandle, app_id: &str) -> Result<Value, String> {
+    crate::app_registry::load_registered_app_record(app, app_id)?
+        .ok_or_else(|| format!("注册记录不存在：{app_id}"))
+}
+
+fn record_field(record: &Value, key: &str) -> Result<String, String> {
+    record
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| format!("注册记录缺少 {key}"))
+}
+
+fn optional_field(record: &Value, key: &str) -> Option<String> {
+    record
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
 fn resolve_targets(
+    action: HostAppAction,
     manager: &Arc<AppLifecycleManager>,
     catalog: &[AppCatalogEntry],
     target: HostActionTarget,
 ) -> Result<Vec<AppCatalogEntry>, HostActionError> {
     match target {
-        HostActionTarget::AllRunning => {
+        HostActionTarget::All => {
+            if !action.permits_all_target() {
+                return Err(HostActionError::new(
+                    HostActionErrorCode::InvalidCommand,
+                    format!("{} 不支持 --all", action.label()),
+                ));
+            }
             let running: HashSet<String> = manager.running_app_ids().into_iter().collect();
             Ok(catalog
                 .iter()
-                .filter(|entry| running.contains(&entry.id))
+                .filter(|entry| action.matches_all_target(running.contains(&entry.id)))
                 .cloned()
                 .collect())
         }
@@ -246,7 +483,7 @@ mod tests {
 
     #[test]
     fn all_is_the_only_reserved_target() {
-        assert_eq!(HostActionTarget::from_raw("--all"), HostActionTarget::AllRunning);
+        assert_eq!(HostActionTarget::from_raw("--all"), HostActionTarget::All);
         assert_eq!(
             HostActionTarget::from_raw("all"),
             HostActionTarget::App("all".to_string())
@@ -272,6 +509,10 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&HostAppAction::ForceStop).unwrap(),
             "\"forceStop\""
+        );
+        assert_eq!(
+            serde_json::to_string(&HostAppAction::Info).unwrap(),
+            "\"info\""
         );
     }
 
@@ -315,5 +556,46 @@ mod tests {
         let value = serde_json::to_value(result).expect("serialize result");
         assert_eq!(value["state"], "failed");
         assert_eq!(value["message"], "结束进程失败");
+    }
+
+    #[test]
+    fn all_target_semantics_depend_on_action() {
+        assert!(HostAppAction::Stop.matches_all_target(true));
+        assert!(!HostAppAction::Stop.matches_all_target(false));
+        assert!(HostAppAction::Start.matches_all_target(false));
+        assert!(!HostAppAction::Start.matches_all_target(true));
+        assert!(HostAppAction::List.matches_all_target(false));
+        assert!(!HostAppAction::Folder.permits_all_target());
+        assert!(HostAppAction::List.permits_all_target());
+        assert!(HostAppAction::Info.permits_all_target());
+    }
+
+    #[test]
+    fn status_outcome_serializes_with_state_and_optional_fields() {
+        let outcome = HostAppOutcome::Status {
+            running: true,
+            pid: Some(42),
+            phase: None,
+            started_at: Some(1_700_000_000_000),
+        };
+        let value = serde_json::to_value(outcome).expect("serialize outcome");
+        assert_eq!(value["state"], "status");
+        assert_eq!(value["running"], true);
+        assert_eq!(value["pid"], 42);
+        assert_eq!(value["startedAt"], 1_700_000_000_000_i64);
+        assert!(value.get("phase").is_none());
+    }
+
+    #[test]
+    fn info_outcome_uses_camel_case_fields() {
+        let outcome = HostAppOutcome::Info {
+            path: "C:/apps/demo/demo.exe".to_string(),
+            version: Some("1.2.3".to_string()),
+            app_kind: Some("desktop-app".to_string()),
+        };
+        let value = serde_json::to_value(outcome).expect("serialize outcome");
+        assert_eq!(value["state"], "info");
+        assert_eq!(value["appKind"], "desktop-app");
+        assert!(value.get("app_kind").is_none());
     }
 }

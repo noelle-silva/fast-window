@@ -53,6 +53,8 @@ pub(crate) enum AppColdStartPolicy {
     Skip,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub(crate) enum AppLaunchOutcome {
     Activated,
     SkippedColdStart,

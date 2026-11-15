@@ -7,9 +7,7 @@ use serde_json::{json, Value};
 use tauri::AppHandle;
 
 use crate::app_lifecycle::manager::{app_status_inner, AppLifecycleManager};
-use crate::host_actions::{
-    self, HostActionErrorCode, HostActionRequest, HostActionTarget,
-};
+use crate::host_actions::{self, HostActionErrorCode, HostActionRequest};
 use crate::local_http::{self, LocalHttpRequest};
 
 /// 固定端口：脚本需要一个可写死的地址，因此端口被占用时宁可启动失败也不静默换端口。
@@ -161,7 +159,10 @@ fn actions_body(
         }
     };
 
-    let target = HostActionTarget::from_raw(&payload.target);
+    let target = match payload.resolve_target() {
+        Ok(target) => target,
+        Err(error) => return (error_status(error.code), to_value(error, "错误序列化失败")),
+    };
     let outcome = tauri::async_runtime::block_on(host_actions::dispatch(
         app,
         lifecycle,
