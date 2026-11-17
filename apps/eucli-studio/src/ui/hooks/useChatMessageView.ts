@@ -1,7 +1,7 @@
 import * as React from 'react'
 import { filterEbRoleRunCardsOnMessagePath } from '../../domain/activeRunCards'
 import { ASSISTANT_RUNNING_CONTENT, isAssistantGenerating } from '../../domain/assistantRunState'
-import { activeRunCardForAssistantMessage, isStaleAssistantPlaceholder, messageVisibleText, shouldShowActiveRunTailPending } from '../../domain/chatMessageDisplay'
+import { activeRunCardForAssistantMessage, isStaleAssistantPlaceholder, messageVisibleText, resolveActiveRunTailAnchorMs, shouldShowActiveRunTailPending } from '../../domain/chatMessageDisplay'
 import { latestCacheRate, latestContextTokens } from '../../domain/message'
 import { formatContextTokens } from '../../domain/messageMetaLine'
 import { formatCacheRate } from '../../domain/cacheRate'
@@ -137,11 +137,16 @@ export function useChatMessageView(deps: {
     return out
   }, [allMessages, activeSessionRunCardsKey, runCardsForView])
   const showActiveRunTailPending = shouldShowActiveRunTailPending(latestActiveVisibleRunCard, renderMessages, activeRunCardForMessage)
+  // 尾部占位的首字秒表锚点跟随本轮：工具结果落定即重新起算，不继承整轮运行的时长。
+  const activeRunTailAnchorMs = React.useMemo(
+    () => resolveActiveRunTailAnchorMs(renderMessages, latestActiveVisibleRunCard),
+    [renderMessages, latestActiveVisibleRunCard],
+  )
   const activeRunTailPendingMessage = React.useMemo(() => {
     if (!showActiveRunTailPending || !latestActiveVisibleRunCard) return null
     const runId = String(latestActiveVisibleRunCard?.runId || '').trim()
     if (!runId) return null
-    const t = Number(latestActiveVisibleRunCard?.createdAt || latestActiveVisibleRunCard?.updatedAt || Date.now())
+    const t = activeRunTailAnchorMs > 0 ? activeRunTailAnchorMs : Date.now()
     return {
       id: `__ui_active_run_tail_pending:${runId}`,
       role: 'assistant',
@@ -160,7 +165,7 @@ export function useChatMessageView(deps: {
         updatedAt: Number(latestActiveVisibleRunCard?.updatedAt || t || Date.now()),
       },
     }
-  }, [showActiveRunTailPending, latestActiveVisibleRunCard, activeTargetKind])
+  }, [showActiveRunTailPending, latestActiveVisibleRunCard, activeTargetKind, activeRunTailAnchorMs])
   // 输入框旁的上下文规模与缓存率都取当前分支最后一条带真值的消息：
   // 与消息行同一个字段，两处数字必然一致。
   const activeContextTokenUsageText = React.useMemo(() => formatContextTokens(latestContextTokens(renderMessages)), [renderMessages])
