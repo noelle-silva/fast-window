@@ -2448,7 +2448,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
       <SidebarResizeLine lineRef={sidebarResizeA.lineRef} active={sidebarResizeA.resizing} />
       <SidebarResizeLine lineRef={sidebarResizeB.lineRef} active={sidebarResizeB.resizing} />
 
-      <ProvidersDialog open={s.modal === 'providers'} controller={controller} providers={providers} draft={s.draft} models={s.models} loading={!!s.loading} />
+      <ProvidersDialog open={s.modal === 'providers'} controller={controller} providers={providers} draft={s.draft} models={s.models} loading={!!s.loading} providerCapabilities={s.providerCapabilities?.value} />
       <RoleDialog open={s.modal === 'role'} controller={controller} providers={providers} modelGroups={modelGroups} draft={s.draft} models={s.models} tools={(s as any).tools} hookPrompts={hookPrompts} placeholders={placeholders} systemPlugins={systemPlugins} />
       <GroupDialog open={s.modal === 'group'} controller={controller} roles={roles} draft={s.draft} />
       <WorkspaceDialog open={s.modal === 'workspace'} controller={controller} draft={s.draft} roles={roles} />

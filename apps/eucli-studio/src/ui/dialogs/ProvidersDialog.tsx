@@ -4,8 +4,18 @@ import CloseIcon from '@mui/icons-material/Close'
 import StorageIcon from '@mui/icons-material/Storage'
 import { ProvidersSettingsPanel } from '../settings/ProvidersSettingsPanel'
 
-export function ProvidersDialog(props: { open: boolean; loading?: boolean; controller: any; providers: any[]; draft: any; models: any }) {
-  const { open, loading, controller, providers, draft, models } = props
+export function ProvidersDialog(props: {
+  open: boolean
+  loading?: boolean
+  controller: any
+  providers: any[]
+  draft: any
+  models: any
+  // providerCapabilities 是业务端声明的协议与思考档位清单；
+  // 不传会让下拉退化成「只显示已保存的值」，看不到其它可选档位。
+  providerCapabilities?: { protocols: any[]; reasoningEfforts: any[] }
+}) {
+  const { open, loading, controller, providers, draft, models, providerCapabilities } = props
 
   return (
     <DependableDialog
@@ -25,7 +35,7 @@ export function ProvidersDialog(props: { open: boolean; loading?: boolean; contr
       </DialogTitle>
       <DialogContent sx={{ p: 1.25, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <Box sx={{ flex: 1, minHeight: 0 }}>
-          <ProvidersSettingsPanel controller={controller} loading={!!loading} providers={providers} draft={draft} models={models} />
+          <ProvidersSettingsPanel controller={controller} loading={!!loading} providers={providers} draft={draft} models={models} providerCapabilities={providerCapabilities} />
         </Box>
       </DialogContent>
     </DependableDialog>
