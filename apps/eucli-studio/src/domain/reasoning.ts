@@ -1,62 +1,47 @@
-// 思考等级词汇表与社区通用命名保持一致（minimal / low / medium / high / xhigh / max / ultra），
-// value 就是存储与网关使用的源字段，label 只做首字母大写的展示形态，不再翻译成中文档位。
-export type ReasoningEffort = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'ultra'
+// 思考档位在客户端没有词汇表。
+//
+// 取值域由业务端通过 GET /api/capabilities 声明，下拉选项也由它渲染（见
+// domain/providerCapabilities）。本模块只做两件事：
+// 原样承载实体上已保存的取值，以及用业务端清单查展示名。
+//
+// 客户端不校验、不翻译、不降级：非法值由业务端快速失败，那正是它该做的。
+// 客户端自己维护一份词表只会制造第二个事实源，两边必然漂移。
 
-export const DEFAULT_REASONING_EFFORT: ReasoningEffort = 'medium'
-
-export const REASONING_EFFORT_OPTIONS: Array<{ value: ReasoningEffort; label: string }> = [
-  { value: 'minimal', label: 'Minimal' },
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
-  { value: 'xhigh', label: 'X High' },
-  { value: 'max', label: 'Max' },
-  { value: 'ultra', label: 'Ultra' },
-]
-
-// 词汇表统一前落库的旧取值，只在解析入口归一一次。
-const LEGACY_REASONING_EFFORT_ALIASES: Record<string, ReasoningEffort> = {
-  very_low: 'minimal',
-  very_high: 'xhigh',
-}
-
-const REASONING_EFFORT_VALUES = new Set<string>(REASONING_EFFORT_OPTIONS.map((option) => option.value))
-
-export function canonicalReasoningEffort(value: unknown): ReasoningEffort | '' {
-  const effort = String(value || '').trim()
-  if (!effort) return ''
-  const alias = LEGACY_REASONING_EFFORT_ALIASES[effort]
-  if (alias) return alias
-  return REASONING_EFFORT_VALUES.has(effort) ? (effort as ReasoningEffort) : ''
-}
+export type ReasoningEffort = string
 
 export type ReasoningProfile = {
   supportsReasoning: boolean
-  defaultReasoningEffort: ReasoningEffort | ''
+  defaultReasoningEffort: ReasoningEffort
 }
 
-export function normalizeReasoningEffort(value: unknown, fallback: ReasoningEffort | '' = ''): ReasoningEffort | '' {
-  return canonicalReasoningEffort(value) || fallback
+function trimEffort(value: unknown): ReasoningEffort {
+  return String(value ?? '').trim()
 }
 
-export function reasoningEffortLabel(value: unknown) {
-  const effort = canonicalReasoningEffort(value)
-  return REASONING_EFFORT_OPTIONS.find((option) => option.value === effort)?.label || ''
+// normalizeReasoningEffort 只修剪空白，不判断合法性。
+export function normalizeReasoningEffort(value: unknown): ReasoningEffort {
+  return trimEffort(value)
+}
+
+// reasoningEffortLabel 用业务端清单查展示名；清单里没有就原样回显取值，
+// 这样业务端新增档位时客户端不认识也能正确显示。
+export function reasoningEffortLabel(value: unknown, options: Array<{ value: string; label: string }>): string {
+  const effort = trimEffort(value)
+  if (!effort) return ''
+  const matched = options.find((option) => String(option?.value ?? '').trim() === effort)
+  return String(matched?.label ?? '').trim() || effort
 }
 
 export function normalizeReasoningProfile(value: unknown): ReasoningProfile {
   const item = value && typeof value === 'object' ? (value as Record<string, unknown>) : null
-  const supportsReasoning = !!item?.supportsReasoning
-  if (!supportsReasoning) return { supportsReasoning: false, defaultReasoningEffort: '' }
-  return {
-    supportsReasoning: true,
-    defaultReasoningEffort: normalizeReasoningEffort(item?.defaultReasoningEffort, DEFAULT_REASONING_EFFORT),
-  }
+  if (!item?.supportsReasoning) return { supportsReasoning: false, defaultReasoningEffort: '' }
+  return { supportsReasoning: true, defaultReasoningEffort: trimEffort(item.defaultReasoningEffort) }
 }
 
+// normalizeReasoningFields 在模型不支持推理时摘掉推理字段，
+// 支持时原样承载业务端给的默认档位。
 export function normalizeReasoningFields<T extends Record<string, unknown>>(value: T): T {
-  const supportsReasoning = !!value.supportsReasoning
-  if (!supportsReasoning) {
+  if (!value.supportsReasoning) {
     const out = { ...value }
     delete out.supportsReasoning
     delete out.defaultReasoningEffort
@@ -65,18 +50,20 @@ export function normalizeReasoningFields<T extends Record<string, unknown>>(valu
   return {
     ...value,
     supportsReasoning: true,
-    defaultReasoningEffort: normalizeReasoningEffort(value.defaultReasoningEffort, DEFAULT_REASONING_EFFORT),
+    defaultReasoningEffort: trimEffort(value.defaultReasoningEffort),
   }
 }
 
-export function chatReasoningEffort(chat: unknown): ReasoningEffort | '' {
+export function chatReasoningEffort(chat: unknown): ReasoningEffort {
   const c = chat && typeof chat === 'object' ? (chat as Record<string, unknown>) : null
-  return normalizeReasoningEffort(c?.reasoningEffort)
+  return trimEffort(c?.reasoningEffort)
 }
 
-export function effectiveReasoningEffort(chat: unknown, profile: ReasoningProfile): ReasoningEffort | '' {
+// effectiveReasoningEffort 回答"这次实际用哪个档位"：会话覆盖优先，其次模型默认。
+// 两者都没有就是空——客户端不发明默认档位，由业务端按自己的默认行为处理。
+export function effectiveReasoningEffort(chat: unknown, profile: ReasoningProfile): ReasoningEffort {
   if (!profile.supportsReasoning) return ''
-  return chatReasoningEffort(chat) || profile.defaultReasoningEffort || DEFAULT_REASONING_EFFORT
+  return chatReasoningEffort(chat) || profile.defaultReasoningEffort
 }
 
 export function modelReasoningProfileFromModelRef(modelRef: unknown, providers: unknown, modelGroups: unknown): ReasoningProfile {

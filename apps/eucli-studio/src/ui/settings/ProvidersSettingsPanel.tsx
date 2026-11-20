@@ -18,10 +18,13 @@ type ProvidersSettingsPanelProps = {
   providers: any[]
   draft: any
   models: any
+  // providerCapabilities 是业务端声明的协议与思考档位清单：
+  // 客户端不持有枚举，拿不到时下拉只显示已保存的值。
+  providerCapabilities?: { protocols?: any[]; reasoningEfforts?: any[] }
 }
 
 export function ProvidersSettingsPanel(props: ProvidersSettingsPanelProps) {
-  const { controller, loading, providers, draft, models } = props
+  const { controller, loading, providers, draft, models, providerCapabilities } = props
   const editingId = String(draft?.editProviderId || '')
   const selectedProvider = providers.find((provider: any) => String(provider?.id || '') === editingId) || null
   const isNewDraft = editingId === NEW_PROVIDER_ID
@@ -107,7 +110,7 @@ export function ProvidersSettingsPanel(props: ProvidersSettingsPanelProps) {
                             <Box sx={{ minWidth: 0, width: '100%' }}>
                               <Box component="span" sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 800 }}>{String(provider?.name || '')}</Box>
                               <Box component="span" sx={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 12, color: 'text.secondary' }}>
-                                {providerProtocolLabel(provider?.protocol)} · {String(provider?.baseUrl || '')}
+                                {providerProtocolLabel(provider?.protocol, providerCapabilities?.protocols)} · {String(provider?.baseUrl || '')}
                               </Box>
                             </Box>
                           </Button>
@@ -124,7 +127,7 @@ export function ProvidersSettingsPanel(props: ProvidersSettingsPanelProps) {
             <CustomScrollArea hostSx={{ height: '100%', minHeight: 0 }} scrollSx={{ height: '100%' }}>
               {editorProvider ? (
                 <SettingsSection>
-                  <ProviderConfigEditor controller={controller} draft={draft} provider={editorProvider} loading={loading} models={models} />
+                  <ProviderConfigEditor controller={controller} draft={draft} provider={editorProvider} loading={loading} models={models} providerCapabilities={providerCapabilities} />
                 </SettingsSection>
               ) : (
                 <SettingsSection sx={{ p: 2 }}>

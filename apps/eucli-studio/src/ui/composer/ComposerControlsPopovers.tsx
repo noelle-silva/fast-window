@@ -2,7 +2,7 @@ import * as React from 'react'
 import { Box, Button, Chip, CircularProgress, Paper, Stack, Typography } from '@mui/material'
 import { DependablePopover } from '../components/DependableOverlay'
 import { SOFT_POPOVER_PAPER_SX } from '../softPopoverStyles'
-import { REASONING_EFFORT_OPTIONS } from '../../domain/reasoning'
+import { resolveCapabilitySelection } from '../../domain/providerCapabilities'
 import { numericTimeValue } from '../utils/time'
 import { ModelSourcePicker } from '../components/ModelSourcePicker'
 import { RoleModelCandidateList } from '../components/RoleModelCandidateList'
@@ -42,6 +42,8 @@ export const ComposerControlsPopovers = React.memo(function ComposerControlsPopo
   saveTempModelOverride: () => void
   reasoningPickerEl: HTMLElement | null
   closeReasoningPicker: () => void
+  // reasoningEffortOptions 是业务端声明的思考档位清单：客户端不持有枚举。
+  reasoningEffortOptions?: Array<{ value: string; label: string; description: string }>
   activeEffectiveReasoningEffort: any
   activeChatReasoningEffort: any
   pickReasoningEffort: (effort: string) => void
@@ -242,7 +244,7 @@ export const ComposerControlsPopovers = React.memo(function ComposerControlsPopo
             </Typography>
 
             <Stack spacing={0.75}>
-              {REASONING_EFFORT_OPTIONS.map((option) => {
+              {resolveCapabilitySelection(props.reasoningEffortOptions || [], activeEffectiveReasoningEffort).options.map((option) => {
                 const selected = String(activeEffectiveReasoningEffort || '') === option.value
                 const sessionSelected = String(activeChatReasoningEffort || '') === option.value
                 return (

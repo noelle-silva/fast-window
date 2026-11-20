@@ -851,7 +851,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
   }, [domainVersion, activeTargetKind, effectiveModelRef, providers, modelGroups])
   const activeChatReasoningEffort = chatReasoningEffort(activeChat)
   const activeEffectiveReasoningEffort = effectiveReasoningEffort(activeChat, reasoningProfile)
-  const activeReasoningLabel = reasoningEffortLabel(activeEffectiveReasoningEffort)
+  const activeReasoningLabel = reasoningEffortLabel(activeEffectiveReasoningEffort, s.providerCapabilities?.value?.reasoningEfforts || [])
   const hasChatReasoningOverride = !!activeChatReasoningEffort
 
   const {
@@ -2132,6 +2132,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     saveTempModelOverride,
     reasoningPickerEl,
     closeReasoningPicker,
+    reasoningEffortOptions: s.providerCapabilities?.value?.reasoningEfforts || [],
     activeEffectiveReasoningEffort,
     activeChatReasoningEffort,
     pickReasoningEffort,
@@ -2167,6 +2168,7 @@ export function AiChatApp(props: { controller: any; bootstrap?: StudioBootstrap;
     saveTempModelOverride,
     reasoningPickerEl,
     closeReasoningPicker,
+    s.providerCapabilities?.value?.reasoningEfforts,
     activeEffectiveReasoningEffort,
     activeChatReasoningEffort,
     pickReasoningEffort,

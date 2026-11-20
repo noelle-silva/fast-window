@@ -5,7 +5,7 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import RefreshIcon from '@mui/icons-material/Refresh'
 import SaveIcon from '@mui/icons-material/Save'
 import { resolveModelGroupStrategySelection, type ModelGroupStrategyOption } from '../../domain/modelGroupStrategies'
-import { REASONING_EFFORT_OPTIONS } from '../../domain/reasoning'
+import { resolveCapabilitySelection, type CapabilityOption } from '../../domain/providerCapabilities'
 import { CustomScrollArea } from '../components/CustomScrollArea'
 import { MoreActionsMenu } from '../components/MoreActionsMenu'
 import { SortableList } from '../components/SortableList'
@@ -18,10 +18,13 @@ type ModelGroupsSettingsPanelProps = {
   loading: boolean
   modelGroups: any
   providers: any[]
+  // providerCapabilities 是业务端声明的思考档位清单：客户端不持有枚举。
+  providerCapabilities?: { protocols?: any[]; reasoningEfforts?: any[] }
 }
 
 export function ModelGroupsSettingsPanel(props: ModelGroupsSettingsPanelProps) {
-  const { controller, loading, modelGroups, providers } = props
+  const { controller, loading, modelGroups, providers, providerCapabilities } = props
+  const reasoningEffortOptions = providerCapabilities?.reasoningEfforts || []
   const box = modelGroups && typeof modelGroups === 'object' ? modelGroups : {}
   const items = Array.isArray(box.items) ? box.items : []
   // 策略清单只有业务端这一个来源：拿到什么就渲染什么，拿不到就只显示已保存的值。
@@ -114,7 +117,7 @@ export function ModelGroupsSettingsPanel(props: ModelGroupsSettingsPanelProps) {
           <Box sx={{ flex: 1, minWidth: 0, minHeight: 0 }}>
             <CustomScrollArea hostSx={{ height: '100%', minHeight: 0 }} scrollSx={{ height: '100%' }}>
               {selectedGroup ? (
-                <ModelGroupEditor controller={controller} group={selectedGroup} providers={providers} strategies={strategies} busy={busy} />
+                <ModelGroupEditor controller={controller} group={selectedGroup} providers={providers} strategies={strategies} reasoningEffortOptions={reasoningEffortOptions} busy={busy} />
               ) : (
                 <SettingsSection sx={{ p: 2 }}>
                   <Typography variant="body2" color="text.secondary">选择一个模型组查看和编辑。</Typography>
@@ -147,8 +150,8 @@ function modelGroupStrategiesNotice(box: any) {
   return Number(box.strategiesFetchedAt || 0) > 0 ? '业务端没有返回可用策略，下拉只能显示已保存的策略值。' : ''
 }
 
-function ModelGroupEditor(props: { controller: any; group: any; providers: any[]; strategies: ModelGroupStrategyOption[]; busy: boolean }) {
-  const { controller, group, providers, strategies, busy } = props
+function ModelGroupEditor(props: { controller: any; group: any; providers: any[]; strategies: ModelGroupStrategyOption[]; reasoningEffortOptions: CapabilityOption[]; busy: boolean }) {
+  const { controller, group, providers, strategies, reasoningEffortOptions, busy } = props
   const groupId = String(group?.id || '')
   const models = Array.isArray(group?.models) ? group.models : []
   return (
@@ -184,7 +187,7 @@ function ModelGroupEditor(props: { controller: any; group: any; providers: any[]
         </Stack>
 
         {models.length ? models.map((model: any, modelIndex: number) => (
-          <ModelGroupModelCard key={`${groupId}:model:${modelIndex}`} controller={controller} groupId={groupId} model={model} modelIndex={modelIndex} providers={providers} strategies={strategies} busy={busy} />
+          <ModelGroupModelCard key={`${groupId}:model:${modelIndex}`} controller={controller} groupId={groupId} model={model} modelIndex={modelIndex} providers={providers} strategies={strategies} reasoningEffortOptions={reasoningEffortOptions} busy={busy} />
         )) : (
           <Typography variant="body2" color="text.secondary">这个模型组还没有对外模型。</Typography>
         )}
@@ -193,8 +196,8 @@ function ModelGroupEditor(props: { controller: any; group: any; providers: any[]
   )
 }
 
-function ModelGroupModelCard(props: { controller: any; groupId: string; model: any; modelIndex: number; providers: any[]; strategies: ModelGroupStrategyOption[]; busy: boolean }) {
-  const { controller, groupId, model, modelIndex, providers, strategies, busy } = props
+function ModelGroupModelCard(props: { controller: any; groupId: string; model: any; modelIndex: number; providers: any[]; strategies: ModelGroupStrategyOption[]; reasoningEffortOptions: CapabilityOption[]; busy: boolean }) {
+  const { controller, groupId, model, modelIndex, providers, strategies, reasoningEffortOptions, busy } = props
   const modelId = String(model?.id || '')
   const members = Array.isArray(model?.members) ? model.members : []
   const supportsReasoning = !!model?.supportsReasoning
@@ -254,8 +257,8 @@ function ModelGroupModelCard(props: { controller: any; groupId: string; model: a
           {supportsReasoning ? (
             <FormControl size="small" fullWidth>
               <InputLabel>默认思考</InputLabel>
-              <Select label="默认思考" value={String(model?.defaultReasoningEffort || 'medium')} onChange={(e) => controller.actions.setModelGroupModelField?.(groupId, modelIndex, 'defaultReasoningEffort', e.target.value)}>
-                {REASONING_EFFORT_OPTIONS.map((option) => <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>)}
+              <Select label="默认思考" value={String(model?.defaultReasoningEffort || '')} onChange={(e) => controller.actions.setModelGroupModelField?.(groupId, modelIndex, 'defaultReasoningEffort', e.target.value)}>
+                {resolveCapabilitySelection(reasoningEffortOptions, model?.defaultReasoningEffort).options.map((option: any) => <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>)}
               </Select>
             </FormControl>
           ) : null}

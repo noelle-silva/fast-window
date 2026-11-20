@@ -51,6 +51,7 @@ import { createAiServices } from '../services/aiServices'
 // ---- controller modules ----
 import { createModelRefresh } from './modelRefresh'
 import { createModelGroupsController } from './modelGroups'
+import { createProviderCapabilitiesController } from './providerCapabilities'
 import { createFavoritesOperations } from './favoritesOperations'
 import { createDeskOperations } from './deskOperations'
 import { createDeskActions } from './actions/deskActions'
@@ -812,6 +813,14 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     emit: emitEntity('modelGroups'),
     showToast: api.ui?.showToast,
   })
+
+  // 协议与思考档位的取值域由业务端声明，客户端只取回并渲染。
+  const providerCapabilitiesController = createProviderCapabilitiesController({
+    getState: () => state,
+    netRequest: capabilities.net?.request || ((() => Promise.resolve({})) as any),
+    emit: emitEntity('providers'),
+  })
+  const { loadProviderCapabilities } = providerCapabilitiesController
   const {
     refreshModelGroups,
     saveModelGroups,
@@ -1559,6 +1568,7 @@ export function createAiChatControllerV2(deps: { capabilities: AiChatCapabilitie
     }
     await load()
     refreshModelGroups(false).catch(() => {})
+    loadProviderCapabilities(false).catch(() => {})
     ebRunEvents.start()
     await restoreActiveEbRoleRuns()
     startUiPollers()

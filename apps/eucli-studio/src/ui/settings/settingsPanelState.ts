@@ -18,6 +18,8 @@ export type SettingsPanelState = {
   providers: any[]
   modelGroups: any
   modelGroupItems: any[]
+  // providerCapabilities 是业务端声明的协议与思考档位清单，客户端只渲染不持有枚举。
+  providerCapabilities: { protocols: any[]; reasoningEfforts: any[] }
   models: any
   tools: any
   toolWorkDirectory: any
@@ -60,6 +62,17 @@ const EMPTY_SYSTEM_PLUGINS = {
   availableInterfaces: [],
 }
 
+// readProviderCapabilities 读取 controller 缓存里的清单：缓存的清单在 value 字段下。
+// 清单缺席时返回空数组，由渲染层退化成「只显示已保存的值」，客户端绝不编造选项。
+function readProviderCapabilities(state: any) {
+  const box = asObject(state?.providerCapabilities) as { value?: unknown } | null
+  const value = asObject(box?.value) as { protocols?: unknown; reasoningEfforts?: unknown } | null
+  return {
+    protocols: Array.isArray(value?.protocols) ? value.protocols : [],
+    reasoningEfforts: Array.isArray(value?.reasoningEfforts) ? value.reasoningEfforts : [],
+  }
+}
+
 function asObject(value: unknown) {
   return value && typeof value === 'object' ? value : null
 }
@@ -84,6 +97,7 @@ export function readSettingsPanelState(controller: any): SettingsPanelState {
     providers: Array.isArray(data?.settings?.providers) ? data.settings.providers : [],
     modelGroups,
     modelGroupItems: Array.isArray((modelGroups as any).items) ? (modelGroups as any).items : [],
+    providerCapabilities: readProviderCapabilities(state),
     models: state.models,
     tools: state.tools,
     toolWorkDirectory: state.toolWorkDirectory,

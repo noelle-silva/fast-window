@@ -93,7 +93,7 @@ export function PluginSettingsPage(props: PluginSettingsPageProps) {
       />
     )
     if (value === 'roles') return <RolesSettingsPanel controller={controller} loading={state.loading} roles={state.roles} providers={state.providers} modelGroups={state.modelGroupItems} models={state.models} tools={state.tools} hookPrompts={state.hookPrompts} placeholders={state.placeholders} draft={state.draft} activeRoleId={state.activeRoleId} />
-    if (value === 'modelGroups') return <ModelGroupsSettingsPanel controller={controller} loading={state.loading} modelGroups={state.modelGroups} providers={state.providers} />
+    if (value === 'modelGroups') return <ModelGroupsSettingsPanel controller={controller} loading={state.loading} modelGroups={state.modelGroups} providers={state.providers} providerCapabilities={state.providerCapabilities} />
     if (value === 'tools') return <AiToolsSettingsPanel controller={controller} loading={state.loading} tools={state.tools} toolWorkDirectory={state.toolWorkDirectory} releaseView={releaseViews.tool} onReleaseRefresh={onReleaseRefresh} />
     if (value === 'hookPrompts') return <HookPromptsSettingsPanel controller={controller} loading={state.loading} hookPrompts={state.hookPrompts} />
     if (value === 'promptLibrary') return <PromptLibrarySettingsPanel controller={controller} roles={state.roles} workspaces={state.workspaces} />
@@ -106,7 +106,7 @@ export function PluginSettingsPage(props: PluginSettingsPageProps) {
     if (value === 'requestRecords') return <RequestRecordsSettingsPanel controller={controller} active={activeTab === 'requestRecords'} loading={state.loading} requestRecords={state.requestRecords} requestRecordViewOptions={state.requestRecordViewOptions} />
     if (value === 'stickers') return <StickersSettingsPanel controller={controller} loading={state.loading} data={state.data} />
     if (value === 'services') return <AiServicesSettingsPanel controller={controller} loading={state.loading} data={state.data} providers={state.providers} modelGroups={state.modelGroups} />
-    return <ProvidersSettingsPanel controller={controller} loading={state.loading} providers={state.providers} draft={state.draft} models={state.models} />
+    return <ProvidersSettingsPanel controller={controller} loading={state.loading} providers={state.providers} draft={state.draft} models={state.models} providerCapabilities={state.providerCapabilities} />
   }
 
   const panels: SettingsPanelEntry[] = navItems.map((item) => ({

@@ -4,9 +4,10 @@ import { normalizeReasoningEffort, normalizeReasoningFields } from './reasoning'
 // 供应商实体的规范化与写入比对属于领域规则：
 // 控制器只负责草稿 / 状态迁移，这里保持纯函数，供保存路径与回读对账共用。
 
+// normalizeProviderProtocol 只修剪空白：协议取值域归业务端所有，
+// 客户端不维护白名单。非法协议由业务端快速失败，那正是它该做的。
 export function normalizeProviderProtocol(value: any) {
-  const protocol = String(value || '').trim()
-  return protocol === 'openai' || protocol === 'anthropic' ? protocol : ''
+  return String(value || '').trim()
 }
 
 export function normalizeProviderApiKeys(value: any) {

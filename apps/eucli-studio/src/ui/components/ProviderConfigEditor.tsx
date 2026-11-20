@@ -8,7 +8,7 @@ import { arrayMove } from '@dnd-kit/sortable'
 import { ApiKeyField } from './fields/ApiKeyField'
 import { MoreActionsMenu } from './MoreActionsMenu'
 import { SortableList } from './SortableList'
-import { REASONING_EFFORT_OPTIONS } from '../../domain/reasoning'
+import { resolveCapabilitySelection } from '../../domain/providerCapabilities'
 
 type ProviderConfigEditorProps = {
   controller: any
@@ -16,10 +16,13 @@ type ProviderConfigEditorProps = {
   provider: any
   loading?: boolean
   models?: any
+  // providerCapabilities 是业务端声明的协议与思考档位清单：
+  // 客户端不持有枚举，拿不到时下拉只显示已保存的值。
+  providerCapabilities?: { protocols?: any[]; reasoningEfforts?: any[] }
 }
 
 export function ProviderConfigEditor(props: ProviderConfigEditorProps) {
-  const { controller, draft, provider, loading, models } = props
+  const { controller, draft, provider, loading, models, providerCapabilities } = props
   // 身份只来自实体：草稿态没有 id 时，刷新模型等实体操作必须保持不可用。
   const providerId = String(provider?.id || '')
   const apiKeys = Array.isArray(draft?.providerApiKeys) ? draft.providerApiKeys : []
@@ -28,6 +31,14 @@ export function ProviderConfigEditor(props: ProviderConfigEditorProps) {
   const busy = !!loading || !!models?.loading
 
   const setDraft = (key: string, value: any) => controller.actions.setDraft(key, value)
+
+  // 协议与思考档位的取值域由业务端声明，客户端只渲染拿到的清单。
+  // 清单缺席时 selected 会退化成「只显示已保存的值」，绝不编造选项。
+  const protocolSelection = React.useMemo(
+    () => resolveCapabilitySelection(providerCapabilities?.protocols || [], draft?.providerProtocol),
+    [providerCapabilities?.protocols, draft?.providerProtocol],
+  )
+  const reasoningEffortOptions = providerCapabilities?.reasoningEfforts || []
 
   // 拖拽排序需要稳定且唯一的条目键：自定义 ID 正常唯一，编辑中空值或重复时补后缀兜底。
   const registeredModelSortIds = React.useMemo(() => {
@@ -91,10 +102,11 @@ export function ProviderConfigEditor(props: ProviderConfigEditorProps) {
 
       <FormControl fullWidth>
         <InputLabel id={`provider-editor-protocol-${providerId || 'new'}`}>协议</InputLabel>
-        <Select labelId={`provider-editor-protocol-${providerId || 'new'}`} label="协议" value={String(draft?.providerProtocol || '')} onChange={(e) => setDraft('providerProtocol', e.target.value)}>
+        <Select labelId={`provider-editor-protocol-${providerId || 'new'}`} label="协议" value={protocolSelection.value} onChange={(e) => setDraft('providerProtocol', e.target.value)}>
           <MenuItem value=""><em>请选择协议</em></MenuItem>
-          <MenuItem value="openai">OpenAI 兼容</MenuItem>
-          <MenuItem value="anthropic">Anthropic</MenuItem>
+          {protocolSelection.options.map((option: any) => (
+            <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
+          ))}
         </Select>
       </FormControl>
 
@@ -202,8 +214,8 @@ export function ProviderConfigEditor(props: ProviderConfigEditorProps) {
                             {item?.supportsReasoning ? (
                               <FormControl size="small" sx={{ flex: 1, minWidth: 160 }}>
                                 <InputLabel>默认思考</InputLabel>
-                                <Select label="默认思考" value={String(item?.defaultReasoningEffort || 'medium')} onChange={(e) => updateRegisteredModel(index, { defaultReasoningEffort: e.target.value })}>
-                                  {REASONING_EFFORT_OPTIONS.map((option) => <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>)}
+                                <Select label="默认思考" value={String(item?.defaultReasoningEffort || '')} onChange={(e) => updateRegisteredModel(index, { defaultReasoningEffort: e.target.value })}>
+                                  {resolveCapabilitySelection(reasoningEffortOptions, item?.defaultReasoningEffort).options.map((option: any) => <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>)}
                                 </Select>
                               </FormControl>
                             ) : null}
