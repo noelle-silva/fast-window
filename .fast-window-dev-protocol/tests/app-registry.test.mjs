@@ -152,6 +152,21 @@ test('体检与模板比对：逐条给出可用、过期、不可用', t => {
   assert.deepEqual(checked.map(item => [item.appName, item.status]), [['fresh', 'up-to-date'], ['gone', 'unavailable'], ['stale', 'outdated']])
 })
 
+test('模板比对忽略换行符差异：LF 与 CRLF 检出都算一致', t => {
+  const root = makeTempDir('fw-registry-')
+  t.after(() => removeDir(root))
+  const registryFile = path.join(root, appRegistryFileName)
+  const lfText = readFileSync(templateTool, 'utf8').replace(/\r\n/g, '\n')
+  for (const [name, text] of [['lf-app', lfText], ['crlf-app', lfText.replace(/\n/g, '\r\n')]]) {
+    const appDir = createApp(root, name)
+    writeFileSync(path.join(appDir, '.fast-window-dev-protocol', 'fast-window-dev-tool.mjs'), text, 'utf8')
+    registerApp(registryFile, name, appDir)
+  }
+
+  const checked = checkAppTemplates(inspectRegisteredApps(registryFile), templateTool)
+  assert.deepEqual(checked.map(item => [item.appName, item.status]), [['crlf-app', 'up-to-date'], ['lf-app', 'up-to-date']])
+})
+
 // 端到端：把中央工具拷到临时目录（注册表随工具目录走），从登记到派发完整跑一遍。
 test('中央工具端到端：登记、列表、模板检查、按注册表派发动作', t => {
   const root = makeTempDir('fw-central-')

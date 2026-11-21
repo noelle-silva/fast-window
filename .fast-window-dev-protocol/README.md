@@ -39,7 +39,7 @@ node .fast-window-dev-protocol/fast-window-dev-tool.mjs --check-templates
 - 注册表管理：
   - `--register`：登记应用；路径必须是绝对路径且已接入协议。同名再登记会改写路径，并打印旧路径 → 新路径。
   - `--list`：列出全部登记及其状态（可用 / 不可用原因）；有不可用条目时退出码非零。
-  - `--check-templates`：比对各应用工具与 `app-template/fast-window-dev-tool.mjs` 是否逐字节一致（一致 / 过期 / 不可用）；只检查不同步，有不一致时退出码非零。
+  - `--check-templates`：比对各应用工具与 `app-template/fast-window-dev-tool.mjs` 内容是否一致（一致 / 过期 / 不可用），忽略换行符差异（各仓库按自己的 eol 规则检出）；只检查不同步，有不一致时退出码非零。
 - 中央管理动作不经过应用工具：
   - `--verify`：对应用成品商店包做离线完整校验（包结构、清单、图标、程序、版本、摘要），可选用本地商店目录文件比对条目；未指定 `--zip` 时默认取协议目录产出区里最新修改的成品。
   - `--unpublish`：从远程商店目录移除该应用条目；`--dry-run` 只预演不写远程。
