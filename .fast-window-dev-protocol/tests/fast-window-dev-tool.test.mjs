@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url'
 
 import { packZipDirectory, unpackZip } from '../app-template/fast-window-dev-tool.mjs'
 import { publishArtifactToStore } from '../modules/fast-window-dev-release.mjs'
-import { loadProtocolEnv } from '../modules/v5-download-store.mjs'
+import { loadProtocolEnv } from '../modules/fast-window-dev-store-remote.mjs'
 
 const templateDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../app-template')
 const toolFileName = 'fast-window-dev-tool.mjs'

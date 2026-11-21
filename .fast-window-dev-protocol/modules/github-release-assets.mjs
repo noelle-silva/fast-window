@@ -1,5 +1,5 @@
 import fs from 'node:fs/promises'
-import { githubJson, githubUpload, repoApiBase } from './v5-download-store.mjs'
+import { githubJson, githubUpload, repoApiBase } from './fast-window-dev-store-remote.mjs'
 
 export async function listReleaseAssets(opts, releaseId, authToken) {
   const apiBase = repoApiBase(opts)

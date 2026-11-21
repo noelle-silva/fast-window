@@ -1,19 +1,18 @@
 import path from 'node:path'
 
 import { cleanupUploadedReleaseAsset, ensureReleaseAsset } from './github-release-assets.mjs'
-import { assertV5AppPublishVersionPolicy } from './v5-app-publishing.mjs'
-import { upsertStoreApp } from './v5-app-packaging.mjs'
+import { assertAppPublishVersionPolicy, upsertStoreApp } from './fast-window-dev-store-catalog.mjs'
 import {
   DEFAULT_DOWNLOAD_BRANCH,
   DEFAULT_DOWNLOAD_OWNER,
   DEFAULT_DOWNLOAD_REPO,
-  V5_STORE_CATALOG_FILE,
+  STORE_CATALOG_FILE,
   assertWritableToken,
-  loadCatalogOrMigrateIndex,
+  loadRemoteCatalog,
   loadProtocolEnv,
   pickGithubToken,
   writeRemoteJsonFile,
-} from './v5-download-store.mjs'
+} from './fast-window-dev-store-remote.mjs'
 import {
   artifactFacts,
   buildCatalogIcon,
@@ -38,7 +37,6 @@ export async function publishArtifactToStore({ protocolDir, credentialsDir, arti
     owner: DEFAULT_DOWNLOAD_OWNER,
     repo: DEFAULT_DOWNLOAD_REPO,
     branch: DEFAULT_DOWNLOAD_BRANCH,
-    force: false,
     appId: manifest.id,
     message: 'Update catalog.json',
   }
@@ -47,8 +45,8 @@ export async function publishArtifactToStore({ protocolDir, credentialsDir, arti
     throw new Error('缺少发布凭据：请在中央协议目录 .fast-window-dev-protocol/.env 或环境变量中提供 GITHUB_TOKEN')
   }
   await assertWritableToken(options, authToken)
-  const remote = await loadCatalogOrMigrateIndex(options, authToken, 'api')
-  assertV5AppPublishVersionPolicy(remote.catalog, manifest.id, version, options.force)
+  const remote = await loadRemoteCatalog(options, authToken, 'api')
+  assertAppPublishVersionPolicy(remote.catalog, manifest.id, version)
 
   const tag = `v${manifest.id}-${version}`
   const downloadUrl = `https://github.com/${options.owner}/${options.repo}/releases/download/${tag}/${artifact.fileName}`
@@ -77,7 +75,7 @@ export async function publishArtifactToStore({ protocolDir, credentialsDir, arti
   let catalogCommitUrl = ''
   try {
     const nextCatalog = upsertStoreApp(remote.catalog, catalogEntry)
-    catalogCommitUrl = await writeRemoteJsonFile(options, V5_STORE_CATALOG_FILE, remote.catalogSha, nextCatalog, authToken)
+    catalogCommitUrl = await writeRemoteJsonFile(options, STORE_CATALOG_FILE, remote.catalogSha, nextCatalog, authToken)
   } catch (error) {
     try {
       await cleanupUploadedReleaseAsset(options, release, authToken)
@@ -96,7 +94,7 @@ export async function publishArtifactToStore({ protocolDir, credentialsDir, arti
     sizeBytes: artifact.sizeBytes,
     releaseUrl: release.releaseUrl,
     assetUrl: release.assetUrl,
-    catalogUrl: `https://raw.githubusercontent.com/${options.owner}/${options.repo}/${options.branch}/${V5_STORE_CATALOG_FILE}`,
+    catalogUrl: `https://raw.githubusercontent.com/${options.owner}/${options.repo}/${options.branch}/${STORE_CATALOG_FILE}`,
     catalogCommitUrl,
   }
 }

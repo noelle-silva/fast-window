@@ -1,16 +1,47 @@
-import { existsSync, readFileSync, statSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
-
-import { sha256FileHex } from './v5-app-packaging.mjs'
 
 export const manifestFileName = 'fw-app.json'
 export const appTypes = new Set(['desktop-app', 'service-app'])
 export const catalogIconMaxDataUrlLength = 200000
-export const safeIDPattern = /^[A-Za-z0-9_-]+$/
 export const iconMimeByExtension = new Map([
   ['.png', 'image/png'],
   ['.svg', 'image/svg+xml'],
 ])
+
+// 商店值规则：应用 id 与版本号在清单、商店目录、远程提交中共用同一份判定。
+export function isSafeId(value) {
+  return /^[A-Za-z0-9_-]+$/.test(String(value ?? '').trim())
+}
+
+// 合法时返回去空白后的版本号，不合法时返回空串。
+export function parseSemverStrict(raw) {
+  const value = String(raw ?? '').trim()
+  return /^\d+\.\d+\.\d+$/.test(value) ? value : ''
+}
+
+export function compareSemverStrict(left, right) {
+  if (!parseSemverStrict(left) || !parseSemverStrict(right)) {
+    throw new Error(`版本号必须是 x.y.z 格式: ${left} / ${right}`)
+  }
+  const a = String(left).trim().split('.').map(Number)
+  const b = String(right).trim().split('.').map(Number)
+  for (let i = 0; i < 3; i += 1) {
+    if (a[i] !== b[i]) return a[i] < b[i] ? -1 : 1
+  }
+  return 0
+}
+
+export function sha256FileHex(filePath) {
+  return new Promise((resolve, reject) => {
+    const hash = createHash('sha256')
+    const stream = createReadStream(filePath)
+    stream.on('error', reject)
+    stream.on('data', chunk => hash.update(chunk))
+    stream.on('end', () => resolve(hash.digest('hex')))
+  })
+}
 
 export function readManifest(protocolDir) {
   const manifestPath = path.join(protocolDir, manifestFileName)
@@ -30,7 +61,7 @@ export function manifestFacts(manifest) {
     throw new Error(`清单 type 必须为 desktop-app 或 service-app：${type || '(empty)'}`)
   }
   const id = String(manifest?.id ?? '').trim()
-  if (!safeIDPattern.test(id)) {
+  if (!isSafeId(id)) {
     throw new Error(`清单 id 不合法：${id}`)
   }
   const name = String(manifest?.name ?? '').trim()
@@ -44,7 +75,7 @@ export function manifestFacts(manifest) {
   const commands = (Array.isArray(manifest?.commands) ? manifest.commands : []).map((item, index) => {
     const commandId = String(item?.id ?? '').trim()
     const title = String(item?.title ?? '').trim()
-    if (!safeIDPattern.test(commandId) || title === '') {
+    if (!isSafeId(commandId) || title === '') {
       throw new Error(`清单 commands[${index}] 不合法`)
     }
     return { id: commandId, title }
@@ -70,9 +101,9 @@ export function readVersion(root, versionSource) {
   } catch (error) {
     throw new Error(`读取 versionSource 失败：${error.message}`)
   }
-  const version = String(payload?.version ?? '').trim()
-  if (!/^\d+\.\d+\.\d+$/.test(version)) {
-    throw new Error(`versionSource 版本无效：${version || '(empty)'}`)
+  const version = parseSemverStrict(payload?.version)
+  if (!version) {
+    throw new Error(`versionSource 版本无效：${String(payload?.version ?? '').trim() || '(empty)'}`)
   }
   return version
 }

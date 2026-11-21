@@ -52,7 +52,7 @@ node .fast-window-dev-protocol/fast-window-dev-tool.mjs --check-templates
 ## 验证
 
 ```text
-node --test .fast-window-dev-protocol/tests/app-registry.test.mjs .fast-window-dev-protocol/tests/fast-window-dev-tool.test.mjs .fast-window-dev-protocol/tests/packaging-guards.test.mjs .fast-window-dev-protocol/tests/store-ops.test.mjs
+node --test .fast-window-dev-protocol/tests/app-registry.test.mjs .fast-window-dev-protocol/tests/fast-window-dev-tool.test.mjs .fast-window-dev-protocol/tests/store-catalog.test.mjs .fast-window-dev-protocol/tests/store-ops.test.mjs
 ```
 
 ## 关联文档

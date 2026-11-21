@@ -1,15 +1,15 @@
-import { removeStoreApp } from './v5-app-packaging.mjs'
+import { removeStoreApp } from './fast-window-dev-store-catalog.mjs'
 import {
   DEFAULT_DOWNLOAD_BRANCH,
   DEFAULT_DOWNLOAD_OWNER,
   DEFAULT_DOWNLOAD_REPO,
-  V5_STORE_CATALOG_FILE,
+  STORE_CATALOG_FILE,
   assertWritableToken,
-  loadCatalogOrMigrateIndex,
+  loadRemoteCatalog,
   loadProtocolEnv,
   pickGithubToken,
   writeRemoteJsonFile,
-} from './v5-download-store.mjs'
+} from './fast-window-dev-store-remote.mjs'
 import { manifestFacts, readManifest } from './fast-window-dev-store-common.mjs'
 
 // 下架边界：凭据只读中央协议目录；dry-run 只读公开目录做预演，不写远程。
@@ -36,27 +36,25 @@ export async function unpublishAppFromStore({ protocolDir, credentialsDir, dryRu
     await assertWritableToken(options, authToken)
   }
 
-  const remote = await loadCatalogOrMigrateIndex(options, authToken, dryRun ? 'public' : 'api')
+  const remote = await loadRemoteCatalog(options, authToken, dryRun ? 'public' : 'api')
   const { catalog, removed } = removeStoreApp(remote.catalog, manifest.id)
 
-  const catalogUrl = `https://raw.githubusercontent.com/${options.owner}/${options.repo}/${options.branch}/${V5_STORE_CATALOG_FILE}`
+  const catalogUrl = `https://raw.githubusercontent.com/${options.owner}/${options.repo}/${options.branch}/${STORE_CATALOG_FILE}`
   if (dryRun) {
     return {
       appId: manifest.id,
       removed: { id: removed.id, version: removed.version, name: removed.name },
       dryRun: true,
-      catalogSource: remote.source,
       catalogUrl,
       catalogCommitUrl: '',
     }
   }
 
-  const catalogCommitUrl = await writeRemoteJsonFile(options, V5_STORE_CATALOG_FILE, remote.catalogSha, catalog, authToken)
+  const catalogCommitUrl = await writeRemoteJsonFile(options, STORE_CATALOG_FILE, remote.catalogSha, catalog, authToken)
   return {
     appId: manifest.id,
     removed: { id: removed.id, version: removed.version, name: removed.name },
     dryRun: false,
-    catalogSource: remote.source,
     catalogUrl,
     catalogCommitUrl,
   }

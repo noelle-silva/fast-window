@@ -1,13 +1,16 @@
+// 远程商店：GitHub 下载仓库上的商店目录读写、令牌装载与校验。
+
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import process from 'node:process'
-import { isSafeId, parseSemverStrict, rootDir } from './v5-app-package-manifest.mjs'
+
+import { assertStoreCatalogShape } from './fast-window-dev-store-catalog.mjs'
+import { isSafeId } from './fast-window-dev-store-common.mjs'
 
 export const DEFAULT_DOWNLOAD_OWNER = 'noelle-silva'
 export const DEFAULT_DOWNLOAD_REPO = 'fast-window-plugins-download'
 export const DEFAULT_DOWNLOAD_BRANCH = 'main'
-export const V5_STORE_CATALOG_FILE = 'catalog.json'
-export const LEGACY_PLUGIN_INDEX_FILE = 'index.json'
+export const STORE_CATALOG_FILE = 'catalog.json'
 
 // 把协议目录内的 .env.local / .env 读入进程环境；已存在的变量不被覆盖。
 export async function loadProtocolEnv(protocolDir) {
@@ -30,10 +33,6 @@ export async function loadProtocolEnv(protocolDir) {
       process.env[key] = value
     }
   }
-}
-
-export async function loadDotEnvIfPresent() {
-  await loadProtocolEnv(rootDir)
 }
 
 export function pickGithubToken() {
@@ -139,53 +138,13 @@ export async function writeRemoteJsonFile(opts, fileName, sha, value, authToken)
   return String(result?.commit?.html_url || '').trim()
 }
 
-function normalizeLegacyIcon(icon) {
-  const raw = String(icon || '').trim()
-  if (raw.startsWith('data:image/')) return { type: 'data', dataUrl: raw }
-  if (raw.startsWith('https://')) return { type: 'url', url: raw }
-  if (raw.length > 0 && raw.length <= 8) return { type: 'emoji', value: raw }
-  return undefined
-}
-
-function convertLegacyPlugin(plugin) {
-  const id = String(plugin?.id || '').trim()
-  const name = String(plugin?.name || '').trim()
-  const description = typeof plugin?.description === 'string' ? plugin.description : ''
-  const version = String(plugin?.version || '').trim()
-  const downloadUrl = String(plugin?.download_url || plugin?.downloadUrl || '').trim()
-  const sha256 = String(plugin?.sha256 || '').trim().toLowerCase()
-  if (!isSafeId(id)) throw new Error(`legacy plugin id 不合法: ${id}`)
-  if (!name) throw new Error(`legacy plugin name 缺失: ${id}`)
-  if (!parseSemverStrict(version)) throw new Error(`legacy plugin version 不合法: ${id}@${version}`)
-  if (!downloadUrl.startsWith('https://')) throw new Error(`legacy plugin downloadUrl 必须是 https: ${id}`)
-  if (!/^[a-f0-9]{64}$/.test(sha256)) throw new Error(`legacy plugin sha256 不合法: ${id}`)
-  const requires = Array.isArray(plugin?.requires) ? plugin.requires.map(x => String(x || '').trim()).filter(Boolean).sort() : []
-  const icon = typeof plugin?.icon === 'string' ? normalizeLegacyIcon(plugin.icon) : undefined
-  return { id, name, description, ...(icon ? { icon } : {}), version, downloadUrl, sha256, requires }
-}
-
-export function assertCatalogShape(catalog, label) {
-  if (!catalog || typeof catalog !== 'object' || Array.isArray(catalog)) throw new Error(`${label} 必须是对象`)
-  if (catalog.catalogVersion !== 2) throw new Error(`${label}.catalogVersion 必须为 2`)
-  if (!Array.isArray(catalog.apps)) throw new Error(`${label}.apps 必须是数组`)
-  if (!Array.isArray(catalog.plugins)) throw new Error(`${label}.plugins 必须是数组`)
-}
-
-export async function loadCatalogOrMigrateIndex(opts, authToken, mode) {
+// 读取远程商店目录：public 走公开地址（预演用，无需令牌），api 走带令牌接口（拿到写回所需的 sha）。
+export async function loadRemoteCatalog(opts, authToken, mode) {
   if (mode !== 'public' && mode !== 'api') throw new Error(`未知 catalog 读取模式: ${mode}`)
-  const readFile = mode === 'public' ? fileName => readPublicRemoteJsonFile(opts, fileName) : fileName => readRemoteJsonFile(opts, fileName, authToken)
-  const catalogFile = await readFile(V5_STORE_CATALOG_FILE)
-  if (catalogFile) {
-    assertCatalogShape(catalogFile.json, V5_STORE_CATALOG_FILE)
-    return { catalog: catalogFile.json, catalogSha: catalogFile.sha, source: V5_STORE_CATALOG_FILE }
-  }
-
-  const indexFile = await readFile(LEGACY_PLUGIN_INDEX_FILE)
-  if (!indexFile) return { catalog: { catalogVersion: 2, apps: [], plugins: [] }, catalogSha: '', source: 'empty' }
-  const index = indexFile.json
-  if (!index || typeof index !== 'object' || Array.isArray(index)) throw new Error(`${LEGACY_PLUGIN_INDEX_FILE} 必须是对象`)
-  if (index.registry_version !== 1) throw new Error(`${LEGACY_PLUGIN_INDEX_FILE}.registry_version 必须为 1`)
-  const plugins = Array.isArray(index.plugins) ? index.plugins.map(convertLegacyPlugin) : []
-  plugins.sort((a, b) => a.name.localeCompare(b.name))
-  return { catalog: { catalogVersion: 2, apps: [], plugins }, catalogSha: '', source: LEGACY_PLUGIN_INDEX_FILE }
+  const file = mode === 'public'
+    ? await readPublicRemoteJsonFile(opts, STORE_CATALOG_FILE)
+    : await readRemoteJsonFile(opts, STORE_CATALOG_FILE, authToken)
+  if (!file) throw new Error(`远程商店缺少 ${STORE_CATALOG_FILE}：${opts.owner}/${opts.repo}@${opts.branch}`)
+  assertStoreCatalogShape(file.json, STORE_CATALOG_FILE)
+  return { catalog: file.json, catalogSha: file.sha }
 }
