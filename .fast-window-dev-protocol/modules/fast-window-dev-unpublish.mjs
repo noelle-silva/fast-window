@@ -10,7 +10,7 @@ import {
   pickGithubToken,
   writeRemoteJsonFile,
 } from './fast-window-dev-store-remote.mjs'
-import { manifestFacts, readManifest } from './fast-window-dev-store-common.mjs'
+import { manifestFacts, readManifest } from './fast-window-dev-app-manifest.mjs'
 
 // 下架边界：凭据只读中央协议目录；dry-run 只读公开目录做预演，不写远程。
 export async function unpublishAppFromStore({ protocolDir, credentialsDir, dryRun = false }) {

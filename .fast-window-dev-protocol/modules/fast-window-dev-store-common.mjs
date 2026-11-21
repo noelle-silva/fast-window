@@ -1,9 +1,9 @@
+// 商店公共规则：值规则（应用 id、版本号、摘要）与发布文件事实（版本源、商店图标、成品）。
+
 import { createHash } from 'node:crypto'
-import { createReadStream, existsSync, readFileSync, statSync } from 'node:fs'
+import { createReadStream, readFileSync, statSync } from 'node:fs'
 import path from 'node:path'
 
-export const manifestFileName = 'fw-app.json'
-export const appTypes = new Set(['desktop-app', 'service-app'])
 export const catalogIconMaxDataUrlLength = 200000
 export const iconMimeByExtension = new Map([
   ['.png', 'image/png'],
@@ -15,10 +15,10 @@ export function isSafeId(value) {
   return /^[A-Za-z0-9_-]+$/.test(String(value ?? '').trim())
 }
 
-// 合法时返回去空白后的版本号，不合法时返回空串。
+// 三段正式版本号（不允许前导零）：合法时返回去空白后的版本号，不合法时返回空串。
 export function parseSemverStrict(raw) {
   const value = String(raw ?? '').trim()
-  return /^\d+\.\d+\.\d+$/.test(value) ? value : ''
+  return /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(value) ? value : ''
 }
 
 export function compareSemverStrict(left, right) {
@@ -41,55 +41,6 @@ export function sha256FileHex(filePath) {
     stream.on('data', chunk => hash.update(chunk))
     stream.on('end', () => resolve(hash.digest('hex')))
   })
-}
-
-export function readManifest(protocolDir) {
-  const manifestPath = path.join(protocolDir, manifestFileName)
-  if (!existsSync(manifestPath)) {
-    throw new Error(`找不到应用清单：${manifestFileName}`)
-  }
-  try {
-    return JSON.parse(readFileSync(manifestPath, 'utf8'))
-  } catch (error) {
-    throw new Error(`解析应用清单失败：${error.message}`)
-  }
-}
-
-export function manifestFacts(manifest) {
-  const type = String(manifest?.type ?? '').trim()
-  if (!appTypes.has(type)) {
-    throw new Error(`清单 type 必须为 desktop-app 或 service-app：${type || '(empty)'}`)
-  }
-  const id = String(manifest?.id ?? '').trim()
-  if (!isSafeId(id)) {
-    throw new Error(`清单 id 不合法：${id}`)
-  }
-  const name = String(manifest?.name ?? '').trim()
-  if (name === '') {
-    throw new Error('清单 name 不能为空')
-  }
-  const description = String(manifest?.description ?? '').trim()
-  if (description === '') {
-    throw new Error('清单 description 不能为空')
-  }
-  const commands = (Array.isArray(manifest?.commands) ? manifest.commands : []).map((item, index) => {
-    const commandId = String(item?.id ?? '').trim()
-    const title = String(item?.title ?? '').trim()
-    if (!isSafeId(commandId) || title === '') {
-      throw new Error(`清单 commands[${index}] 不合法`)
-    }
-    return { id: commandId, title }
-  })
-  return {
-    type,
-    id,
-    name,
-    description,
-    versionSource: manifest?.versionSource,
-    executable: manifest?.package?.windowsExecutable,
-    icon: manifest?.package?.icon,
-    commands,
-  }
 }
 
 export function readVersion(root, versionSource) {
@@ -115,8 +66,14 @@ export function buildCatalogIcon(root, iconRel) {
     throw new Error('清单 package.icon 只支持 .png 或 .svg 图标')
   }
   const file = path.join(root, icon)
-  if (!existsSync(file)) {
+  let info
+  try {
+    info = statSync(file)
+  } catch {
     throw new Error(`图标文件不存在：${icon}`)
+  }
+  if (!info.isFile() || info.size === 0) {
+    throw new Error(`图标必须是非空文件：${icon}`)
   }
   const dataUrl = `data:${mime};base64,${readFileSync(file).toString('base64')}`
   if (dataUrl.length > catalogIconMaxDataUrlLength) {

@@ -1,6 +1,7 @@
 import path from 'node:path'
 
 import { cleanupUploadedReleaseAsset, ensureReleaseAsset } from './github-release-assets.mjs'
+import { manifestFacts, readManifest } from './fast-window-dev-app-manifest.mjs'
 import { assertAppPublishVersionPolicy, upsertStoreApp } from './fast-window-dev-store-catalog.mjs'
 import {
   DEFAULT_DOWNLOAD_BRANCH,
@@ -13,13 +14,7 @@ import {
   pickGithubToken,
   writeRemoteJsonFile,
 } from './fast-window-dev-store-remote.mjs'
-import {
-  artifactFacts,
-  buildCatalogIcon,
-  manifestFacts,
-  readManifest,
-  readVersion,
-} from './fast-window-dev-store-common.mjs'
+import { artifactFacts, buildCatalogIcon, readVersion } from './fast-window-dev-store-common.mjs'
 
 // 发布边界：manifest 读应用协议目录，凭据只读中央协议目录，应用侧不持有发布凭据。
 export async function publishArtifactToStore({ protocolDir, credentialsDir, artifactPath }) {

@@ -2,14 +2,9 @@ import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 
-import { isReservedNameExempted, parseReservedNameExemptions, storeIconPackagePath, unpackZip } from '../app-template/fast-window-dev-tool.mjs'
-import {
-  artifactFacts,
-  manifestFacts,
-  normalizeRelativePath,
-  readManifest,
-  readVersion,
-} from './fast-window-dev-store-common.mjs'
+import { isReservedNameExempted, storeIconPackagePath, unpackZip } from '../app-template/fast-window-dev-tool.mjs'
+import { manifestFacts, readManifest } from './fast-window-dev-app-manifest.mjs'
+import { artifactFacts, normalizeRelativePath, readVersion } from './fast-window-dev-store-common.mjs'
 
 const reservedPackageDataDirName = 'data'
 
@@ -17,6 +12,15 @@ async function pathExists(filePath) {
   try {
     await fs.access(filePath)
     return true
+  } catch {
+    return false
+  }
+}
+
+async function isNonEmptyFile(filePath) {
+  try {
+    const info = await fs.stat(filePath)
+    return info.isFile() && info.size > 0
   } catch {
     return false
   }
@@ -42,19 +46,15 @@ function normalizePackagedCommands(value) {
   }))
 }
 
-function comparePackagedManifest(packaged, manifest, version, sourceService) {
+function comparePackagedManifest(packaged, manifest, version) {
   assertSameJson(packaged?.type, manifest.type, '清单 type')
   assertSameJson(packaged?.id, manifest.id, '清单 id')
   assertSameJson(packaged?.name, manifest.name, '清单 name')
   assertSameJson(packaged?.description, manifest.description, '清单 description')
   assertSameJson(normalizePackagedCommands(packaged?.commands), manifest.commands, '清单 commands')
-  assertSameJson(packaged?.service, sourceService, '清单 service')
+  assertSameJson(packaged?.service, manifest.service, '清单 service')
   assertSameJson(packaged?.package?.windowsExecutable, manifest.executable, '清单 windowsExecutable')
-  assertSameJson(
-    packaged?.package?.icon,
-    storeIconPackagePath(normalizeRelativePath(manifest.icon, 'package.icon')),
-    '清单 icon',
-  )
+  assertSameJson(packaged?.package?.icon, storeIconPackagePath(manifest.icon), '清单 icon')
   assertSameJson(String(packaged?.version ?? '').trim(), version, '包内版本')
 }
 
@@ -101,9 +101,7 @@ async function latestArtifactInOutDir(protocolDir) {
 // 校验边界：只读应用协议目录成品与源清单；可选与本地商店目录文件比对，不访问远程。
 export async function verifyAppArtifact({ protocolDir, artifactPath, catalogPath }) {
   const root = path.dirname(path.resolve(protocolDir))
-  const sourceManifest = readManifest(protocolDir)
-  const manifest = manifestFacts(sourceManifest)
-  const reservedNameExemptions = parseReservedNameExemptions(sourceManifest.reservedNameExemptions)
+  const manifest = manifestFacts(readManifest(protocolDir))
   const version = readVersion(root, manifest.versionSource)
 
   const explicit = String(artifactPath ?? '').trim()
@@ -127,24 +125,23 @@ export async function verifyAppArtifact({ protocolDir, artifactPath, catalogPath
     } catch (error) {
       throw new Error(`解析商店包内 fw-app.json 失败：${error.message}`)
     }
-    comparePackagedManifest(packaged, manifest, version, sourceManifest.service)
+    comparePackagedManifest(packaged, manifest, version)
     checks.push({ name: 'packaged-manifest', ok: true })
 
     const iconRel = normalizeRelativePath(packaged?.package?.icon, 'package.icon')
-    if (!(await pathExists(path.join(tempDir, iconRel)))) {
-      throw new Error(`商店包缺少图标：${iconRel}`)
+    if (!(await isNonEmptyFile(path.join(tempDir, iconRel)))) {
+      throw new Error(`商店包缺少图标或图标为空文件：${iconRel}`)
     }
     checks.push({ name: 'icon', ok: true, detail: iconRel })
 
-    const executableRel = normalizeRelativePath(manifest.executable, 'package.windowsExecutable')
-    if (!(await pathExists(path.join(tempDir, executableRel)))) {
-      throw new Error(`商店包缺少入口程序：${executableRel}`)
+    if (!(await pathExists(path.join(tempDir, manifest.executable)))) {
+      throw new Error(`商店包缺少入口程序：${manifest.executable}`)
     }
-    checks.push({ name: 'windows-executable', ok: true, detail: executableRel })
+    checks.push({ name: 'windows-executable', ok: true, detail: manifest.executable })
 
     if (
       await pathExists(path.join(tempDir, reservedPackageDataDirName)) &&
-      !isReservedNameExempted(reservedNameExemptions, reservedPackageDataDirName)
+      !isReservedNameExempted(manifest.reservedNameExemptions, reservedPackageDataDirName)
     ) {
       throw new Error(`商店包不允许包含保留数据目录：${reservedPackageDataDirName}`)
     }

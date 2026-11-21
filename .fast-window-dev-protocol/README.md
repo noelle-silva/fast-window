@@ -42,6 +42,7 @@ node .fast-window-dev-protocol/fast-window-dev-tool.mjs --check-templates
   - `--check-templates`：比对各应用工具与 `app-template/fast-window-dev-tool.mjs` 内容是否一致（一致 / 过期 / 不可用），忽略换行符差异（各仓库按自己的 eol 规则检出）；只检查不同步，有不一致时退出码非零。
 - 中央管理动作不经过应用工具：
   - `--verify`：对应用成品商店包做离线完整校验（包结构、清单、图标、程序、版本、摘要），可选用本地商店目录文件比对条目；未指定 `--zip` 时默认取协议目录产出区里最新修改的成品。
+- 应用清单规则只在中央维护：`modules/fast-window-dev-app-manifest.mjs`（字段白名单、服务声明结构、主程序 / 图标 / 快捷指令规则），发布、下架、`--verify` 共用；应用侧不另立私有清单校验。
   - `--unpublish`：从远程商店目录移除该应用条目；`--dry-run` 只预演不写远程。
 
 ## 角色边界
@@ -52,7 +53,7 @@ node .fast-window-dev-protocol/fast-window-dev-tool.mjs --check-templates
 ## 验证
 
 ```text
-node --test .fast-window-dev-protocol/tests/app-registry.test.mjs .fast-window-dev-protocol/tests/fast-window-dev-tool.test.mjs .fast-window-dev-protocol/tests/store-catalog.test.mjs .fast-window-dev-protocol/tests/store-ops.test.mjs
+node --test .fast-window-dev-protocol/tests/app-manifest.test.mjs .fast-window-dev-protocol/tests/app-registry.test.mjs .fast-window-dev-protocol/tests/fast-window-dev-tool.test.mjs .fast-window-dev-protocol/tests/store-catalog.test.mjs .fast-window-dev-protocol/tests/store-ops.test.mjs
 ```
 
 ## 关联文档
