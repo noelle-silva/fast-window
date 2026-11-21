@@ -1,3 +1,5 @@
 .env
 .env.*
 dist/
+# 应用注册表记录本机绝对路径，换机即失效
+app-registry.json
