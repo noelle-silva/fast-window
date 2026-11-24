@@ -43,6 +43,7 @@ mod host_primitives;
 mod host_updater;
 mod http_api;
 mod install_fs;
+mod instance_identity;
 pub(crate) mod json_file;
 mod local_http;
 mod migrations;
@@ -2515,6 +2516,10 @@ fn set_auto_start(app: tauri::AppHandle, enabled: bool) -> Result<AutoStartStatu
 }
 
 fn main() {
+    if let Err(error) = instance_identity::init_isolated_environment() {
+        eprintln!("[fast-window] {error}");
+        std::process::exit(1);
+    }
     let builder = app::builder_base().invoke_handler(tauri::generate_handler![
         get_plugins_dir,
         get_data_dir,

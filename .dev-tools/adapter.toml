@@ -1,0 +1,23 @@
+contract = 3
+
+[app]
+name = "fast-window"
+ports = 1
+
+[commands]
+deps   = "node .dev-tools/cf-adapter/index.mjs deps"
+build  = "node .dev-tools/cf-adapter/index.mjs build"
+start  = "node .dev-tools/cf-adapter/index.mjs start"
+health = "node .dev-tools/cf-adapter/index.mjs health"
+stop   = "node .dev-tools/cf-adapter/index.mjs stop"
+seed   = "node .dev-tools/cf-adapter/index.mjs seed"
+test   = "node .dev-tools/cf-adapter/index.mjs test"
+
+[[exceptions]]
+path = "node_modules"
+reason = "npm 工具链强制在源码树内安装依赖目录"
+
+[quick-build.env]
+CARGO_TARGET_DIR = "${EUCLI_CF_QUICK_BUILD_DIR}/cargo-target"
+CARGO_HOME = "${EUCLI_CF_DEPS_STORE}/cargo"
+npm_config_cache = "${EUCLI_CF_DEPS_STORE}/npm"

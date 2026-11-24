@@ -1,4 +1,5 @@
 import fs from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { isSafeId, parseSemverStrict, rootDir } from './host-support.mjs'
@@ -9,8 +10,30 @@ export const DEFAULT_DOWNLOAD_BRANCH = 'main'
 export const V5_STORE_CATALOG_FILE = 'catalog.json'
 export const LEGACY_PLUGIN_INDEX_FILE = 'index.json'
 
+function findDevSpaceCredentialsDir(startDir) {
+  let cur = path.resolve(startDir)
+  while (true) {
+    if (existsSync(path.join(cur, '.eucli-dev-space'))) {
+      return path.join(cur, 'shared', 'credentials')
+    }
+    const parent = path.dirname(cur)
+    if (parent === cur) return ''
+    cur = parent
+  }
+}
+
 export async function loadDotEnvIfPresent() {
-  for (const filePath of [path.join(rootDir, '.env.local'), path.join(rootDir, '.env')]) {
+  const credDir = findDevSpaceCredentialsDir(rootDir)
+  const candidates = credDir
+    ? [
+        path.join(credDir, 'host.env'),
+        path.join(credDir, '.env.local'),
+        path.join(credDir, '.env'),
+        path.join(rootDir, '.env.local'),
+        path.join(rootDir, '.env'),
+      ]
+    : [path.join(rootDir, '.env.local'), path.join(rootDir, '.env')]
+  for (const filePath of candidates) {
     let raw = ''
     try {
       raw = await fs.readFile(filePath, 'utf8')
