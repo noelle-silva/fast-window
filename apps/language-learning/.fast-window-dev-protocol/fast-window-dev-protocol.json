@@ -3,9 +3,9 @@
   "runner": "node",
   "actions": {
     "helloworld": "echo helloworld",
-    "build-ui": "pnpm -C .. run build:ui",
-    "build-exe": "pnpm -C .. run build:exe",
-    "build-exe-dev": "pnpm -C .. run build:exe:dev",
+    "build-ui": "npm --prefix .. run build:ui",
+    "build-exe": "npm --prefix .. run build:exe",
+    "build-exe-dev": "npm --prefix .. run build:exe:dev",
     "stage": "node ../scripts/stage-app.mjs",
     "stage-dev": "node ../scripts/stage-app.mjs --profile dev",
     "sync-exe": "node ../scripts/sync-app-exe.mjs",
@@ -24,7 +24,7 @@
     "version-patch": "node ../scripts/bump-app-version.mjs --patch",
     "version-minor": "node ../scripts/bump-app-version.mjs --minor",
     "version-major": "node ../scripts/bump-app-version.mjs --major",
-    "dev": "pnpm -C .. run dev",
-    "test": "pnpm -C .. run test"
+    "dev": "npm --prefix .. run dev",
+    "test": "npm --prefix .. run test"
   }
 }

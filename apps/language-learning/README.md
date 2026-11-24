@@ -13,12 +13,12 @@
 ## 常用命令
 
 ```powershell
-pnpm --dir apps/language-learning build:backend      # 构建 Go sidecar
-pnpm --dir apps/language-learning build:ui           # backend + vite + resources
-pnpm --dir apps/language-learning build:exe:dev      # dev exe
-pnpm --dir apps/language-learning build:app:dev      # dev staging 容器
-pnpm --dir apps/language-learning build:app          # release staging 容器
-pnpm --dir apps/language-learning apps:version:check # 版本一致性
+npm --prefix apps/language-learning run build:backend      # 构建 Go sidecar
+npm --prefix apps/language-learning run build:ui           # backend + vite + resources
+npm --prefix apps/language-learning run build:exe:dev      # dev exe
+npm --prefix apps/language-learning run build:app:dev      # dev staging 容器
+npm --prefix apps/language-learning run build:app          # release staging 容器
+npm --prefix apps/language-learning run apps:version:check # 版本一致性
 ```
 
 ## 验收
@@ -26,9 +26,9 @@ pnpm --dir apps/language-learning apps:version:check # 版本一致性
 ```powershell
 go test ./...            # 在 apps/language-learning/backend-go 下执行
 cargo test --manifest-path apps/language-learning/src-tauri/Cargo.toml
-pnpm --dir apps/language-learning exec tsc --noEmit
-pnpm --dir apps/language-learning build:ui
-pnpm --dir apps/language-learning build:app:dev
+npm --prefix apps/language-learning exec -- tsc --noEmit
+npm --prefix apps/language-learning run build:ui
+npm --prefix apps/language-learning run build:app:dev
 ```
 
 手动验收要点：

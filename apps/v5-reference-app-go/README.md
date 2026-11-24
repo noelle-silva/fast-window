@@ -120,13 +120,13 @@ apps/<app-id>/
 
 | 命令 | 作用 | 输出/影响 |
 |---|---|---|
-| `pnpm build:exe` | 裸 Tauri exe 构建 | `src-tauri/target/release/` |
-| `pnpm build:app` | 完整生成本地 release app 容器 | 只替换 `dist-app/v5-windows/package/` |
-| `pnpm build:app:dev` | 完整生成本地 dev app 容器 | 只替换 `dist-app/v5-windows-dev/package/` |
-| `pnpm build:app:exe` | 只重建并同步入口 exe 到已存在的 package | 替换 `dist-app/v5-windows/package/<entry>.exe` |
-| `pnpm build:app:exe:dev` | 只重建并同步 dev 入口 exe | 替换 `dist-app/v5-windows-dev/package/<entry>.exe` |
-| `pnpm build:app:package` | 生成商店 zip（协议目录 `dist/`） | 商店包 zip |
-| `pnpm apps:version:check` / `pnpm apps:bump` | 版本校验 / 递增 | 五处版本文件 |
+| `npm run build:exe` | 裸 Tauri exe 构建 | `src-tauri/target/release/` |
+| `npm run build:app` | 完整生成本地 release app 容器 | 只替换 `dist-app/v5-windows/package/` |
+| `npm run build:app:dev` | 完整生成本地 dev app 容器 | 只替换 `dist-app/v5-windows-dev/package/` |
+| `npm run build:app:exe` | 只重建并同步入口 exe 到已存在的 package | 替换 `dist-app/v5-windows/package/<entry>.exe` |
+| `npm run build:app:exe:dev` | 只重建并同步 dev 入口 exe | 替换 `dist-app/v5-windows-dev/package/<entry>.exe` |
+| `npm run build:app:package` | 生成商店 zip（协议目录 `dist/`） | 商店包 zip |
+| `npm run apps:version:check` / `npm run apps:bump` | 版本校验 / 递增 | 五处版本文件 |
 
 协议动作（从主仓库执行）：
 
@@ -140,25 +140,25 @@ apps/<app-id>/
 首次本地注册或资源、图标、命令、打包清单变化后：
 
 ```powershell
-pnpm --dir apps/<app-id> build:app
+npm --prefix apps/<app-id> run build:app
 ```
 
 首次本地注册 dev 版，或 dev 版资源、图标、命令、打包清单变化后：
 
 ```powershell
-pnpm --dir apps/<app-id> build:app:dev
+npm --prefix apps/<app-id> run build:app:dev
 ```
 
 只改了入口 exe 代码，希望保留注册路径并快速替换：
 
 ```powershell
-pnpm --dir apps/<app-id> build:app:exe
+npm --prefix apps/<app-id> run build:app:exe
 ```
 
 只改了入口 exe 代码，希望保留 dev 注册路径并快速替换：
 
 ```powershell
-pnpm --dir apps/<app-id> build:app:exe:dev
+npm --prefix apps/<app-id> run build:app:exe:dev
 ```
 
 正式发布（应用产出成品，中央执行发布；凭据读主仓库 `.fast-window-dev-protocol/.env`）：
@@ -196,23 +196,22 @@ dist-app/v5-windows[-dev]/package/    （本地注册容器，装配只替换 pa
 按应用协议体系接入（复制模板 + 收编构建链 + 注册动作），详见：
 
 - `.fast-window-dev-protocol/app-template/README.md`（接入步骤）
-- 参考实现：`apps/ai-draw/`
 
 ## 验收命令
 
 ```powershell
-pnpm --dir apps/v5-reference-app-go build:backend
-pnpm --dir apps/v5-reference-app-go apps:version:check
-pnpm --dir apps/v5-reference-app-go apps:bump:dry
+npm --prefix apps/v5-reference-app-go run build:backend
+npm --prefix apps/v5-reference-app-go run apps:version:check
+npm --prefix apps/v5-reference-app-go run apps:bump:dry
 go test ./...
-pnpm --dir apps/v5-reference-app-go build:ui
+npm --prefix apps/v5-reference-app-go run build:ui
 cargo check --manifest-path apps/v5-reference-app-go/src-tauri/Cargo.toml
-pnpm --dir apps/v5-reference-app-go exec tsc --noEmit
-pnpm --dir apps/v5-reference-app-go exec vite build
-pnpm --dir apps/v5-reference-app-go build:exe:dev
-pnpm --dir apps/v5-reference-app-go build:app
-pnpm --dir apps/v5-reference-app-go build:app:dev
-pnpm --dir apps/v5-reference-app-go build:app:exe:dev
+npm --prefix apps/v5-reference-app-go exec -- tsc --noEmit
+npm --prefix apps/v5-reference-app-go exec -- vite build
+npm --prefix apps/v5-reference-app-go run build:exe:dev
+npm --prefix apps/v5-reference-app-go run build:app
+npm --prefix apps/v5-reference-app-go run build:app:dev
+npm --prefix apps/v5-reference-app-go run build:app:exe:dev
 ```
 
 `go test ./...` 需要在 `apps/v5-reference-app-go/backend-go` 目录执行，或使用等价的 `go test ./apps/v5-reference-app-go/backend-go/...` 风格命令。

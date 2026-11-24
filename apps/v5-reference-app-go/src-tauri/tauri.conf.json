@@ -4,9 +4,9 @@
   "version": "0.1.2",
   "identifier": "com.fastwindow.v5referenceappgo",
   "build": {
-    "beforeDevCommand": "pnpm build:backend && pnpm build:resources && pnpm dev",
+    "beforeDevCommand": "npm run build:backend && npm run build:resources && npm run dev",
     "devUrl": "http://127.0.0.1:1434",
-    "beforeBuildCommand": "pnpm build:ui",
+    "beforeBuildCommand": "npm run build:ui",
     "frontendDist": "../dist"
   },
   "app": {
