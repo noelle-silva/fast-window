@@ -5,7 +5,7 @@
 ## 环境要求
 
 - Node.js（建议 18+）
-- pnpm（项目声明：`pnpm@10`）
+- npm（随 Node.js 提供，无需单独安装）
 - Rust stable + Cargo
 - Windows 开发：需要 MSVC 工具链（Visual Studio Build Tools）
 - Tauri v2 相关依赖：由 `@tauri-apps/cli` 驱动（通过脚本调用）
@@ -23,26 +23,26 @@
 安装依赖：
 
 ```bash
-pnpm install
+npm install
 ```
 
 仅前端（浏览器预览）：
 
 ```bash
-pnpm dev
+npm run dev
 ```
 
 桌面端（Tauri Dev，推荐）：
 
 ```bash
-pnpm tauri dev
+npm run tauri -- dev
 ```
 
 说明：
 
-- `pnpm tauri build ...` 会构建宿主本体（不再随包预置任何插件）。
+- `npm run tauri -- build ...` 会构建宿主本体（不再随包预置任何插件）。
 - Tauri 配置在 `src-tauri/tauri.conf.json`。
-- 当前 `tauri.conf.json` 的 `beforeDevCommand/beforeBuildCommand` 配置为 `npm run dev/build`（确保你的环境里有 `npm`，或自行改成 `pnpm run ...`）。
+- 当前 `tauri.conf.json` 的 `beforeDevCommand/beforeBuildCommand` 配置为 `npm run dev/build`（依赖环境里的 `npm`）。
 
 ## 窗口快捷键行为
 
@@ -66,7 +66,7 @@ pnpm tauri dev
 构建 Windows 安装包（MSI）：
 
 ```bash
-pnpm tauri build -b msi
+npm run tauri -- build -b msi
 ```
 
 ## 构建发布
@@ -74,19 +74,19 @@ pnpm tauri build -b msi
 仅构建前端产物：
 
 ```bash
-pnpm build
+npm run build
 ```
 
 本地预览构建产物：
 
 ```bash
-pnpm preview
+npm run preview
 ```
 
 构建桌面安装包/可执行文件（Tauri Build）：
 
 ```bash
-pnpm tauri build
+npm run tauri -- build
 ```
 
 ## 插件源码（保留参考）
@@ -119,8 +119,8 @@ pnpm tauri build
 - 新应用接入指引：`.fast-window-dev-protocol/app-template/README.md`
 - 标准样板与命令说明：`apps/v5-reference-app-go/README.md`
 - 完整本地可注册目录：`apps/<app-id>/dist-app/v5-windows/`
-- 本地完整生成：`pnpm --dir apps/<app-id> build:app` / `pnpm --dir apps/<app-id> build:app:dev`
-- 只替换已存在注册目录里的入口 exe：`pnpm --dir apps/<app-id> build:app:exe` / `build:app:exe:dev`
+- 本地完整生成：`npm --prefix apps/<app-id> run build:app` / `npm --prefix apps/<app-id> run build:app:dev`
+- 只替换已存在注册目录里的入口 exe：`npm --prefix apps/<app-id> run build:app:exe` / `build:app:exe:dev`
 - 中央调度应用动作：`node .fast-window-dev-protocol/fast-window-dev-tool.mjs <app-id> <动作>`
 - 发布（应用产出成品，中央执行发布）：`node .fast-window-dev-protocol/fast-window-dev-tool.mjs <app-id> package release`
 

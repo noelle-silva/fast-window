@@ -45,7 +45,7 @@
 
 ```text
 # 应用内自测（按各应用实际命令）
-pnpm -C <应用根目录> test
+npm --prefix <应用根目录> run test
 
 # 登记状态与模板一致性
 node .fast-window-dev-protocol/fast-window-dev-tool.mjs --list
