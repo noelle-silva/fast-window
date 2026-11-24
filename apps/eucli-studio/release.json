@@ -1,7 +1,0 @@
-{
-  "version": "0.7.2",
-  "eucliBoxCompatibility": {
-    "minimumVersion": "0.1.0",
-    "maximumVersionExclusive": "0.2.0"
-  }
-}
