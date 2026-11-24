@@ -11,6 +11,7 @@ export const usageText = [
   '  node .fast-window-dev-protocol/fast-window-dev-tool.mjs <应用名> --register <应用根目录绝对路径>',
   '  node .fast-window-dev-protocol/fast-window-dev-tool.mjs --list',
   '  node .fast-window-dev-protocol/fast-window-dev-tool.mjs --check-templates',
+  '  node .fast-window-dev-protocol/fast-window-dev-tool.mjs --check-deps',
 ].join('\n')
 
 function isSafeSegment(value) {
@@ -26,6 +27,7 @@ function parseGlobalArgs(args) {
   if (rest.length > 0) throw usageError(`${command} 不接受额外参数：${rest.join(' ')}`)
   if (command === '--list') return { kind: 'list' }
   if (command === '--check-templates') return { kind: 'check-templates' }
+  if (command === '--check-deps') return { kind: 'check-deps' }
   throw usageError(`不支持的全局命令：${command}`)
 }
 

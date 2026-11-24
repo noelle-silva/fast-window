@@ -9,6 +9,7 @@ import {
   resolveRegisteredApp,
 } from './modules/fast-window-dev-app-registry.mjs'
 import { parseArgs, releaseMode } from './modules/fast-window-dev-cli-args.mjs'
+import { checkDependencyParity } from './modules/fast-window-dev-dependency-parity.mjs'
 import { dispatchAppAction } from './modules/fast-window-dev-dispatch.mjs'
 import { publishArtifactToStore } from './modules/fast-window-dev-release.mjs'
 import { checkAppTemplates } from './modules/fast-window-dev-template-check.mjs'
@@ -56,6 +57,32 @@ function runCheckTemplates() {
   if (failing > 0) throw new Error(`${failing} 个应用工具未与中央模板保持一致`)
 }
 
+const dependencyStatusLabel = { ok: '[一致]  ', loose: '[警告]  ', skipped: '[跳过]  ', unavailable: '[不可用]' }
+
+function describeDrift(entry) {
+  return `${entry.packageName} 已装 ${entry.installedVersion} ↔ Rust ${entry.crateName} ${entry.crateVersion}，建议 ${entry.suggestedRange}`
+}
+
+function describeLoose(entry) {
+  return `${entry.packageName} 区间 ${entry.declaredRange} 允许漂到别的次版本，建议 ${entry.suggestedRange}`
+}
+
+function runCheckDeps() {
+  const results = checkDependencyParity(inspectRegisteredApps(registryFile))
+  printReport(`依赖版本一致性 ${results.length} 个`, results.map(app => {
+    if (app.status === 'failing') {
+      return `[失败]   ${app.appName}  ${app.entries.filter(entry => entry.status === 'drift').map(describeDrift).join('；')}`
+    }
+    if (app.status === 'loose') {
+      return `[警告]   ${app.appName}  ${app.entries.filter(entry => entry.status === 'loose').map(describeLoose).join('；')}`
+    }
+    const detail = app.detail === '' ? app.entries.map(entry => `${entry.packageName} ${entry.installedVersion || '未安装'} ↔ ${entry.crateVersion}`).join('；') : app.detail
+    return `${dependencyStatusLabel[app.status]} ${app.appName}  ${detail}`
+  }))
+  const failing = results.filter(app => app.status === 'failing').length
+  if (failing > 0) throw new Error(`${failing} 个应用的前端包与 Rust crate 次版本不一致，构建会被 Tauri 拒绝`)
+}
+
 async function runVerify({ appName, zip, catalog }) {
   const { protocolDir } = resolveRegisteredApp(registryFile, appName)
   const result = await verifyAppArtifact({ protocolDir, artifactPath: zip, catalogPath: catalog })
@@ -88,6 +115,7 @@ const runners = {
   register: runRegister,
   list: runList,
   'check-templates': runCheckTemplates,
+  'check-deps': runCheckDeps,
   verify: runVerify,
   unpublish: runUnpublish,
   action: runAction,
