@@ -137,7 +137,7 @@ export default function HostDevToolsPanel({ panelSx }: HostDevToolsPanelProps) {
             发布宿主发行版
           </Typography>
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-            执行 pnpm run host:publish，并发布 MSI 与宿主更新目录。发布前请确认 token、仓库和工作区状态。
+            执行 npm run host:publish，并发布 MSI 与宿主更新目录。发布前请确认 token、仓库和工作区状态。
           </Typography>
         </Box>
 

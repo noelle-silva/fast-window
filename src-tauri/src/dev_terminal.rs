@@ -17,7 +17,7 @@ pub(crate) struct DevTerminalCommandSpec {
 
 impl DevTerminalCommandSpec {
     pub(crate) fn command_preview(&self) -> Vec<String> {
-        let mut command = vec!["pnpm".to_string(), "run".to_string()];
+        let mut command = vec!["npm".to_string(), "run".to_string()];
         command.extend(self.args.clone());
         command
     }
@@ -121,7 +121,7 @@ fn dev_terminal_script(spec: &DevTerminalCommandSpec) -> String {
          echo [fast-window] {}\r\n\
          echo [fast-window] command: {}\r\n\
          echo.\r\n\
-         call pnpm.cmd {}\r\n\
+         call npm.cmd {}\r\n\
          set \"FW_EXIT_CODE=%ERRORLEVEL%\"\r\n\
          echo.\r\n\
          if %FW_EXIT_CODE% EQU 0 (echo [fast-window] command completed.) else (echo [fast-window] command failed with exit code %FW_EXIT_CODE%.)\r\n\
