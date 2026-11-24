@@ -54,7 +54,7 @@ async function main() {
     return
   }
 
-  const runTauri = (tauriArgs, opts = {}) => run('pnpm', ['exec', 'tauri', ...tauriArgs], opts)
+  const runTauri = (tauriArgs, opts = {}) => run('npm', ['exec', '--', 'tauri', ...tauriArgs], opts)
 
   if (isDev) {
     const configFiles = fastDev ? HOST_FAST_DEV_PROFILE_CONFIGS : HOST_DEV_PROFILE_CONFIGS

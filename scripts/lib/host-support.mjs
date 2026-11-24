@@ -49,10 +49,10 @@ function cmdQuote(value) {
 }
 
 function resolveSpawnSpec(command, args) {
-  if (process.platform === 'win32' && command === 'pnpm') {
+  if (process.platform === 'win32' && command === 'npm') {
     return {
       command: process.env.ComSpec || 'cmd.exe',
-      args: ['/d', '/s', '/c', ['pnpm.cmd', ...args].map(cmdQuote).join(' ')],
+      args: ['/d', '/s', '/c', ['npm.cmd', ...args].map(cmdQuote).join(' ')],
     }
   }
   return { command, args }

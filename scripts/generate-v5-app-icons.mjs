@@ -69,7 +69,7 @@ async function generateTauriIcons(targetSvg, tauriDir) {
   const iconsDir = path.join(tauriDir, 'icons')
   await fs.rm(iconsDir, { recursive: true, force: true })
   await fs.mkdir(iconsDir, { recursive: true })
-  await run('pnpm', ['exec', 'tauri', 'icon', targetSvg, '--output', iconsDir], { cwd: repoRoot })
+  await run('npm', ['exec', '--', 'tauri', 'icon', targetSvg, '--output', iconsDir], { cwd: repoRoot })
   await pruneIconOutputs(iconsDir)
 }
 
