@@ -58,4 +58,4 @@ node .fast-window-dev-protocol/fast-window-dev-tool.mjs <应用id> <动作>
 node .fast-window-dev-protocol/fast-window-dev-tool.mjs <应用id> package release
 ```
 
-参考实现：`apps/ai-draw/`（首个完整范例）。
+参考实现：`apps/v5-reference-app-go/`（仓库内置标准样板）。

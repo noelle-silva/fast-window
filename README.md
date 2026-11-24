@@ -118,9 +118,9 @@ npm run tauri -- build
 - 协议体系总览：`.fast-window-dev-protocol/README.md`
 - 新应用接入指引：`.fast-window-dev-protocol/app-template/README.md`
 - 标准样板与命令说明：`apps/v5-reference-app-go/README.md`
-- 完整本地可注册目录：`apps/<app-id>/dist-app/v5-windows/`
-- 本地完整生成：`npm --prefix apps/<app-id> run build:app` / `npm --prefix apps/<app-id> run build:app:dev`
-- 只替换已存在注册目录里的入口 exe：`npm --prefix apps/<app-id> run build:app:exe` / `build:app:exe:dev`
+- 完整本地可注册目录：`<应用根目录>/dist-app/v5-windows/`
+- 本地完整生成：`npm --prefix <应用根目录> run build:app` / `npm --prefix <应用根目录> run build:app:dev`
+- 只替换已存在注册目录里的入口 exe：`npm --prefix <应用根目录> run build:app:exe` / `build:app:exe:dev`
 - 中央调度应用动作：`node .fast-window-dev-protocol/fast-window-dev-tool.mjs <app-id> <动作>`
 - 发布（应用产出成品，中央执行发布）：`node .fast-window-dev-protocol/fast-window-dev-tool.mjs <app-id> package release`
 
