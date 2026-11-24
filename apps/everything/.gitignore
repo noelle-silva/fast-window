@@ -1,6 +1,0 @@
-node_modules/
-dist/
-dist-app/
-src-tauri/target/
-src-tauri/binaries/
-*.log
