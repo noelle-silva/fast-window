@@ -47,12 +47,12 @@ test('构建配置拒绝写入 staging 保留目录', () => {
   const buildConfig = {
     profiles: {
       release: {
-        build: { command: 'pnpm', args: ['build'] },
+        build: { command: 'npm', args: ['build'] },
         stageDir: 'dist-app/v5-windows',
         files: [{ from: 'target/release/app.exe', to: 'data/app.exe' }],
       },
       dev: {
-        build: { command: 'pnpm', args: ['build:dev'] },
+        build: { command: 'npm', args: ['build:dev'] },
         stageDir: 'dist-app/v5-windows-dev',
         files: [{ from: 'target/debug/app.exe', to: 'app.exe' }],
       },
@@ -70,7 +70,7 @@ test('构建配置缺少 profile 时快速失败', () => {
       {
         profiles: {
           release: {
-            build: { command: 'pnpm', args: ['build'] },
+            build: { command: 'npm', args: ['build'] },
             stageDir: 'dist-app/v5-windows',
             files: [{ from: 'target/release/app.exe', to: 'app.exe' }],
           },

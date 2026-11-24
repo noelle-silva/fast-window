@@ -2,9 +2,11 @@
   "profiles": {
     "release": {
       "build": {
-        "command": "pnpm",
+        "command": "npm",
         "args": [
+          "run",
           "tauri",
+          "--",
           "build",
           "--no-bundle"
         ]
@@ -27,8 +29,9 @@
     },
     "dev": {
       "build": {
-        "command": "pnpm",
+        "command": "npm",
         "args": [
+          "run",
           "build:exe:dev"
         ]
       },
