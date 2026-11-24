@@ -212,6 +212,15 @@ pub(crate) fn builder_tail(builder: tauri::Builder<tauri::Wry>) -> tauri::Builde
                 paused: Mutex::new(false),
             });
 
+            let isolated_instance = crate::instance_identity::resolve_isolated_instance()
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
+
+            if let Some(isolated) = isolated_instance.as_ref() {
+                crate::instance_identity::write_ready_marker(isolated)
+                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+                return Ok(());
+            }
+
             // 仅当配置文件显式设置过 autoStart 时，才同步到系统自启（避免默认行为影响用户空间）。
             #[cfg(target_os = "windows")]
             {

@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
@@ -16,9 +17,29 @@ import { checkAppTemplates } from './modules/fast-window-dev-template-check.mjs'
 import { unpublishAppFromStore } from './modules/fast-window-dev-unpublish.mjs'
 import { verifyAppArtifact } from './modules/fast-window-dev-verify.mjs'
 
-// 中央协议目录：调度工具所在目录，持有应用注册表与发布凭据。
+// 中央协议目录：调度工具所在目录；若位于 eucli-code-factory 开发空间内，
+// 本机应用注册表与发布凭据自动读写空间 shared/，避免污染源码工作树。
 const toolDir = path.dirname(fileURLToPath(import.meta.url))
-const registryFile = path.join(toolDir, appRegistryFileName)
+
+function findDevSpaceSharedDir(startDir) {
+  let cur = path.resolve(startDir)
+  while (true) {
+    if (existsSync(path.join(cur, '.eucli-dev-space'))) {
+      return path.join(cur, 'shared')
+    }
+    const parent = path.dirname(cur)
+    if (parent === cur) return ''
+    cur = parent
+  }
+}
+
+const devSpaceSharedDir = findDevSpaceSharedDir(toolDir)
+const registryFile = devSpaceSharedDir
+  ? path.join(devSpaceSharedDir, appRegistryFileName)
+  : path.join(toolDir, appRegistryFileName)
+const credentialsDir = devSpaceSharedDir
+  ? path.join(devSpaceSharedDir, 'credentials')
+  : toolDir
 const templateToolFile = path.join(toolDir, 'app-template', 'fast-window-dev-tool.mjs')
 const logPrefix = 'fast-window-dev-tool:'
 
@@ -92,7 +113,7 @@ async function runVerify({ appName, zip, catalog }) {
 
 async function runUnpublish({ appName, dryRun }) {
   const { protocolDir } = resolveRegisteredApp(registryFile, appName)
-  const result = await unpublishAppFromStore({ protocolDir, credentialsDir: toolDir, dryRun })
+  const result = await unpublishAppFromStore({ protocolDir, credentialsDir, dryRun })
   console.log(JSON.stringify(result))
   console.log(`${logPrefix} ${appName} 下架${result.dryRun ? '预演' : ''}完成（移除 ${result.removed.id} v${result.removed.version}）`)
 }
@@ -105,7 +126,7 @@ async function runAction({ appName, action, mode }) {
   if (artifactPath !== '') console.log(`${logPrefix} 成品 ${artifactPath}`)
   if (mode !== releaseMode) return
   if (artifactPath === '') throw new Error(`动作 ${action} 没有可发布的成品`)
-  const published = await publishArtifactToStore({ protocolDir, credentialsDir: toolDir, artifactPath })
+  const published = await publishArtifactToStore({ protocolDir, credentialsDir, artifactPath })
   console.log(`${logPrefix} 已发布 ${published.appId} ${published.version}`)
   console.log(`${logPrefix} 发布地址 ${published.releaseUrl}`)
   console.log(`${logPrefix} 商店目录 ${published.catalogUrl}`)
